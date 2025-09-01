@@ -1218,7 +1218,7 @@ class MainWindow(QMainWindow):
             self.show()  # 오류 발생 시 창 다시 표시
             QMessageBox.critical(self, "오류", f"시퀀스를 실행할 수 없습니다: {e}")
             self.reset_execution_ui()
-        finally:
+        finally:    
             self.run_btn.setEnabled(True)
             self.run_action.setEnabled(True)
             self.stop_btn.setEnabled(False)
@@ -1392,6 +1392,10 @@ class MainWindow(QMainWindow):
 
     def on_sequence_complete(self, sequence_id: str, result: MacroExecutionResult):
         """시퀀스 완료 시 (스레드 안전)"""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        # FIXME: 여기에서 프로그램 멈추는 오류 있음
         # 메인 스레드에서 실행되도록 예약
         QTimer.singleShot(
             0, lambda: self._on_sequence_complete_impl(sequence_id, result)
@@ -1400,6 +1404,12 @@ class MainWindow(QMainWindow):
     def _on_sequence_complete_impl(
         self, sequence_id: str, result: MacroExecutionResult
     ):
+        # 매크로 완료 후 창 다시 표시
+        if self.isHidden():
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        logger.debug(f"시퀀스 완료 콜백 호출 22: {sequence_id}")
         """시퀀스 완료 시 실제 구현 (메인 스레드에서 실행)"""
         sequence = self.engine.config.get_macro_sequence(sequence_id)
         sequence_name = sequence.name if sequence else "알 수 없음"
@@ -1414,11 +1424,6 @@ class MainWindow(QMainWindow):
         if not result.success and result.error_message:
             self.add_log(f"오류: {result.error_message}")
 
-        # 매크로 완료 후 창 다시 표시
-        if self.isHidden():
-            self.show()
-            self.raise_()
-            self.activateWindow()
 
         # UI 리셋
         self.reset_execution_ui()

@@ -220,6 +220,7 @@ class MacroEngine:
         def run_sequence():
             result = self._execute_sequence_sync(sequence)
             if self.on_sequence_complete:
+                logger.debug(f"시퀀스 완료 콜백 호출 11: {sequence_id}")
                 self.on_sequence_complete(sequence_id, result)
 
         self.execution_thread = threading.Thread(target=run_sequence)
