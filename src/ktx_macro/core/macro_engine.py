@@ -164,25 +164,6 @@ class MacroEngine:
         logger.info(f"매크로 시퀀스 생성됨: {name} ({sequence_id})")
         return sequence_id
 
-    def add_action_to_sequence(
-        self, sequence_id: str, action_type: ActionType, **kwargs
-    ) -> Optional[str]:
-        """시퀀스에 액션 추가"""
-        sequence = self.config.get_macro_sequence(sequence_id)
-        if not sequence:
-            logger.error(f"시퀀스를 찾을 수 없습니다: {sequence_id}")
-            return None
-
-        action_id = str(uuid.uuid4())
-
-        action = MacroAction(id=action_id, action_type=action_type, **kwargs)
-
-        sequence.add_action(action)
-        self.save_config()
-
-        logger.debug(f"액션 추가됨: {action_type} -> {sequence.name}")
-        return action_id
-
     def execute_sequence(self, sequence_id: str) -> MacroExecutionResult:
         """매크로 시퀀스 실행 (동기)"""
         if self.is_running:
@@ -276,13 +257,6 @@ class MacroEngine:
                         error_msg = f"액션 실행 실패: {action.action_type}"
                         result.add_step_result(action.id, False, error_msg)
 
-                        # 중요한 액션 실패 시 시퀀스 중단
-                        if action.action_type in [ActionType.FIND_IMAGE]:
-                            logger.error(
-                                f"중요한 액션 실패로 시퀀스 중단: {action.action_type}"
-                            )
-                            break
-
                     # 액션 간 지연
                     if self.config.action_delay > 0:
                         time.sleep(self.config.action_delay)
@@ -312,15 +286,6 @@ class MacroEngine:
                 f"성공: {result.success}, 실행시간: {result.execution_time:.2f}초"
             )
 
-            # 텔레그램 알림
-            if self.telegram_bot.is_configured():
-                self.telegram_bot.send_macro_result(
-                    sequence.name,
-                    result.success,
-                    result.execution_time,
-                    f"{result.steps_executed}/{result.total_steps} 단계 완료",
-                )
-
         except Exception as e:
             logger.error(f"매크로 실행 중 오류: {e}")
             result.error_message = str(e)
@@ -348,10 +313,7 @@ class MacroEngine:
         try:
             logger.debug(f"액션 실행: {action.action_type}")
 
-            if action.action_type == ActionType.FIND_IMAGE:
-                return self._execute_find_image_action(action)
-
-            elif action.action_type == ActionType.CLICK:
+            if action.action_type == ActionType.CLICK:
                 return self._execute_click_action(action)
 
             elif action.action_type == ActionType.DOUBLE_CLICK:
@@ -385,52 +347,6 @@ class MacroEngine:
         except Exception as e:
             logger.error(f"액션 실행 중 오류: {action.action_type}, {e}")
             return False
-
-    def _execute_find_image_action(self, action: MacroAction) -> bool:
-        """이미지 찾기 액션 실행"""
-        if not action.image_template_id:
-            logger.error("이미지 템플릿 ID가 없습니다")
-            return False
-
-        template = self.config.get_image_template(action.image_template_id)
-        if not template:
-            logger.error(
-                f"이미지 템플릿을 찾을 수 없습니다: {action.image_template_id}"
-            )
-            return False
-
-        # 스크린샷 캡쳐
-        screenshot = self.screen_capture.capture_full_screen()
-        if screenshot is None:
-            logger.error("스크린샷 캡쳐 실패")
-            return False
-
-        # 이미지 매칭 시도
-        start_time = time.time()
-        while time.time() - start_time < action.timeout_seconds:
-            if self.stop_requested:
-                return False
-
-            match_result = self.image_matcher.find_image_in_screenshot(
-                screenshot,
-                template.file_path,
-                action.match_threshold,
-                template.capture_region,
-            )
-
-            if match_result.found:
-                logger.debug(f"이미지 매칭 성공: {template.name}")
-                return True
-
-            time.sleep(0.5)  # 0.5초 간격으로 재시도
-
-            # 새 스크린샷 캡쳐
-            screenshot = self.screen_capture.capture_full_screen()
-            if screenshot is None:
-                break
-
-        logger.warning(f"이미지 매칭 시간 초과: {template.name}")
-        return False
 
     def _execute_click_action(self, action: MacroAction) -> bool:
         """클릭 액션 실행"""

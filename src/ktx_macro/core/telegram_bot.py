@@ -144,33 +144,6 @@ class TelegramBot:
 
         return success
 
-    async def send_macro_result(
-        self,
-        macro_name: str,
-        success: bool,
-        execution_time: float,
-        details: Optional[str] = None,
-    ) -> bool:
-        """매크로 실행 결과 전송"""
-        if not self.is_configured():
-            return False
-
-        status_emoji = "✅" if success else "❌"
-        status_text = "성공" if success else "실패"
-
-        message = f"""
-{status_emoji} <b>매크로 실행 {status_text}</b>
-
-📋 <b>매크로:</b> {macro_name}
-⏱️ <b>실행 시간:</b> {execution_time:.2f}초
-🕐 <b>시간:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-"""
-
-        if details:
-            message += f"\n📝 <b>세부사항:</b> {details}"
-
-        return await self.send_message(message.strip())
-
     async def send_error_report(
         self, error_type: str, error_message: str, context: Optional[str] = None
     ) -> bool:
@@ -179,12 +152,12 @@ class TelegramBot:
             return False
 
         message = f"""
-🚨 <b>오류 발생</b>
+            🚨 <b>오류 발생</b>
 
-❗ <b>유형:</b> {error_type}
-💬 <b>메시지:</b> {error_message}
-🕐 <b>시간:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-"""
+            ❗ <b>유형:</b> {error_type}
+            💬 <b>메시지:</b> {error_message}
+            🕐 <b>시간:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            """
 
         if context:
             message += f"\n📍 <b>컨텍스트:</b> {context}"
@@ -270,24 +243,6 @@ class SyncTelegramBot:
             logger.error(f"동기 연결 테스트 실패: {e}")
             return False
 
-    def send_macro_result(
-        self,
-        macro_name: str,
-        success: bool,
-        execution_time: float,
-        details: Optional[str] = None,
-    ) -> bool:
-        """매크로 결과 전송 (동기)"""
-        try:
-            result = self._run_async(
-                self.async_bot.send_macro_result(
-                    macro_name, success, execution_time, details
-                )
-            )
-            return result if isinstance(result, bool) else False
-        except Exception as e:
-            logger.error(f"동기 매크로 결과 전송 실패: {e}")
-            return False
 
     def close(self) -> None:
         """리소스 정리"""

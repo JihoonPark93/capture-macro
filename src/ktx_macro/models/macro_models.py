@@ -21,7 +21,6 @@ class ActionType(Enum):
     KEY_PRESS = "key_press"
     SCROLL = "scroll"
     WAIT = "wait"
-    FIND_IMAGE = "find_image"
     SEND_TELEGRAM = "send_telegram"
 
 
@@ -84,6 +83,7 @@ class MacroAction:
     id: str
     action_type: ActionType
     enabled: bool = True
+    description: Optional[str] = None
 
     # 이미지 관련
     image_template_id: Optional[str] = None
@@ -116,6 +116,7 @@ class MacroAction:
             "id": self.id,
             "action_type": self.action_type.value,
             "enabled": self.enabled,
+            "description": self.description,
             "image_template_id": self.image_template_id,
             "click_position": self.click_position,
             "drag_to_position": self.drag_to_position,
@@ -136,6 +137,7 @@ class MacroAction:
             id=data["id"],
             action_type=ActionType(data["action_type"]),
             enabled=data.get("enabled", True),
+            description=data.get("description"),
             image_template_id=data.get("image_template_id"),
             click_position=(
                 tuple(data["click_position"]) if data.get("click_position") else None

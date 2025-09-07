@@ -2,8 +2,12 @@
 메인 윈도우 GUI
 """
 
-from pathlib import Path
-from typing import Optional
+import uuid
+from typing import Optional, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .settings_dialog import SettingsDialog
+    from .telegram_settings import TelegramSettingsDialog
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -25,153 +29,21 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QCheckBox,
     QDialog,
-    QScrollArea,
     QApplication,
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSize, QRect
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
-    QIcon,
-    QPixmap,
     QKeySequence,
 )
 
 from ..core.macro_engine import MacroEngine, MacroExecutionResult
 from ..models.macro_models import ActionType
 from ..utils.logger import get_logger
-from .capture_dialog import CaptureDialog
-from .sequence_editor import SequenceEditor
-from .settings_dialog import SettingsDialog
-from .telegram_settings import TelegramSettingsDialog
+
+# 다이얼로그 import는 실제 사용 시점에서 동적으로 import
 
 logger = get_logger(__name__)
-
-
-class ImagePreviewDialog(QDialog):
-    """이미지 미리보기 다이얼로그"""
-
-    def __init__(self, image_path: str, template_name: str, parent=None):
-        super().__init__(parent)
-        self.image_path = image_path
-        self.template_name = template_name
-        self.init_ui()
-
-    def init_ui(self):
-        """UI 초기화"""
-        self.setWindowTitle(f"이미지 미리보기 - {self.template_name}")
-        self.setModal(True)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-
-        # 메인 레이아웃
-        layout = QVBoxLayout(self)
-
-        # 스크롤 영역
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        # 이미지 라벨
-        self.image_label = QLabel()
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet(
-            "border: 1px solid #dee2e6; background-color: white;"
-        )
-
-        scroll_area.setWidget(self.image_label)
-        layout.addWidget(scroll_area)
-
-        # 정보 라벨
-        self.info_label = QLabel()
-        self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.info_label.setStyleSheet(
-            "padding: 10px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;"
-        )
-        layout.addWidget(self.info_label)
-
-        # 버튼 레이아웃
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        close_btn = QPushButton("닫기")
-        close_btn.setObjectName("primary_button")
-        close_btn.clicked.connect(self.accept)
-        button_layout.addWidget(close_btn)
-
-        layout.addLayout(button_layout)
-
-        # 다이얼로그 크기 설정
-        self.resize(600, 500)
-
-        # 이미지 로드 (모든 UI 요소가 생성된 후)
-        self.load_image()
-
-    def load_image(self):
-        """이미지 로드 및 표시"""
-        try:
-            if not Path(self.image_path).exists():
-                self.image_label.setText("❌ 이미지 파일을 찾을 수 없습니다.")
-                self.info_label.setText(f"파일 경로: {self.image_path}")
-                return
-
-            pixmap = QPixmap(self.image_path)
-            if pixmap.isNull():
-                self.image_label.setText("❌ 이미지를 로드할 수 없습니다.")
-                self.info_label.setText(f"파일 경로: {self.image_path}")
-                return
-
-            # 이미지 크기 조정 (최대 500x400)
-            max_width = 500
-            max_height = 400
-
-            if pixmap.width() > max_width or pixmap.height() > max_height:
-                scaled_pixmap = pixmap.scaled(
-                    max_width,
-                    max_height,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            else:
-                scaled_pixmap = pixmap
-
-            self.image_label.setPixmap(scaled_pixmap)
-
-            # 정보 표시
-            file_size = Path(self.image_path).stat().st_size
-            file_size_mb = file_size / (1024 * 1024)
-
-            info_text = (
-                f"📋 이름: {self.template_name}\n"
-                f"📐 크기: {pixmap.width()} × {pixmap.height()} 픽셀\n"
-                f"💾 파일 크기: {file_size_mb:.2f} MB\n"
-                f"📁 경로: {self.image_path}"
-            )
-            self.info_label.setText(info_text)
-
-        except Exception as e:
-            self.image_label.setText(f"❌ 이미지 로드 오류: {str(e)}")
-            self.info_label.setText(f"파일 경로: {self.image_path}")
-
-
-class MacroExecutionThread(QThread):
-    """매크로 실행 스레드"""
-
-    execution_finished = pyqtSignal(str, object)  # sequence_id, result
-    action_started = pyqtSignal(str, object)  # sequence_id, action
-    action_finished = pyqtSignal(str, object, bool)  # sequence_id, action, success
-
-    def __init__(self, engine: MacroEngine, sequence_id: str):
-        super().__init__()
-        self.engine = engine
-        self.sequence_id = sequence_id
-
-    def run(self):
-        """스레드 실행"""
-        try:
-            result = self.engine.execute_sequence(self.sequence_id)
-            self.execution_finished.emit(self.sequence_id, result)
-        except Exception as e:
-            logger.error(f"매크로 실행 스레드 오류: {e}")
 
 
 class MainWindow(QMainWindow):
@@ -184,21 +56,26 @@ class MainWindow(QMainWindow):
         self.engine = MacroEngine()
 
         # 상태 변수
-        self.execution_thread: Optional[MacroExecutionThread] = None
         self.is_capturing = False
 
         # UI 컴포넌트
-        self.template_list: Optional[QListWidget] = None
         self.action_table: Optional[QTableWidget] = None
         self.log_text: Optional[QTextEdit] = None
         self.status_label: Optional[QLabel] = None
         self.progress_bar: Optional[QProgressBar] = None
 
+        # 액션 에디터 목록 (캡쳐 이벤트 전달용)
+        self.action_editors: List = []
+
+        # 캡쳐 시 숨겨진 윈도우 목록
+        self.hidden_windows: List = []
+
+        # 캡쳐 관련
+        self.capture_overlay = None
+
         # 다이얼로그
-        self.capture_dialog: Optional[CaptureDialog] = None
-        self.sequence_editor: Optional[SequenceEditor] = None
-        self.settings_dialog: Optional[SettingsDialog] = None
-        self.telegram_dialog: Optional[TelegramSettingsDialog] = None
+        self.settings_dialog: Optional["SettingsDialog"] = None
+        self.telegram_dialog: Optional["TelegramSettingsDialog"] = None
 
         # UI 초기화
         self.init_ui()
@@ -236,16 +113,9 @@ class MainWindow(QMainWindow):
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(main_splitter)
 
-        # 왼쪽 패널 (시퀀스/템플릿 목록)
-        left_panel = self.create_left_panel()
-        main_splitter.addWidget(left_panel)
-
-        # 오른쪽 패널 (액션 목록/로그)
-        right_panel = self.create_right_panel()
-        main_splitter.addWidget(right_panel)
-
-        # 분할기 비율 설정
-        main_splitter.setSizes([400, 800])
+        # 메인 패널 (액션 목록/로그)
+        main_panel = self.create_main_panel()
+        main_splitter.addWidget(main_panel)
 
         # 상태바 생성
         self.create_status_bar()
@@ -346,63 +216,8 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_execution)
         toolbar.addWidget(self.stop_btn)
 
-    def create_left_panel(self) -> QWidget:
-        """왼쪽 패널 생성"""
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-
-        # 템플릿 목록 그룹
-        template_group = QGroupBox("이미지 템플릿")
-        template_group_layout = QVBoxLayout(template_group)
-
-        # 템플릿 테이블 설정
-        self.template_list = QTableWidget()
-        self.template_list.setColumnCount(3)
-        self.template_list.setHorizontalHeaderLabels(["썸네일", "이름", "크기"])
-
-        # 테이블 컬럼 크기 설정
-        header = self.template_list.horizontalHeader()
-        header.resizeSection(0, 64)  # 썸네일 컬럼 (64px)
-        header.setStretchLastSection(True)  # 마지막 컬럼 자동 조정
-        header.setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )  # 이름 컬럼 늘어남
-
-        # 테이블 설정
-        self.template_list.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
-        )
-        self.template_list.setAlternatingRowColors(True)
-        self.template_list.verticalHeader().setVisible(False)
-        self.template_list.setRowHeight(0, 48)  # 기본 행 높이
-
-        # 이벤트 연결
-        self.template_list.itemSelectionChanged.connect(self.on_template_selected)
-        self.template_list.itemDoubleClicked.connect(self.on_template_double_clicked)
-
-        template_group_layout.addWidget(self.template_list)
-
-        # 템플릿 버튼들
-        temp_btn_layout = QHBoxLayout()
-
-        add_temp_btn = QPushButton("캡쳐")
-        add_temp_btn.setObjectName("success_button")
-        add_temp_btn.clicked.connect(self.start_capture)
-        temp_btn_layout.addWidget(add_temp_btn)
-
-        self.del_temp_btn = QPushButton("삭제")
-        self.del_temp_btn.setObjectName("danger_button")
-        self.del_temp_btn.setEnabled(False)
-        self.del_temp_btn.clicked.connect(self.delete_template)
-        temp_btn_layout.addWidget(self.del_temp_btn)
-
-        template_group_layout.addLayout(temp_btn_layout)
-        layout.addWidget(template_group)
-
-        return panel
-
-    def create_right_panel(self) -> QWidget:
-        """오른쪽 패널 생성"""
+    def create_main_panel(self) -> QWidget:
+        """메인 패널 생성"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
 
@@ -412,16 +227,31 @@ class MainWindow(QMainWindow):
 
         # 액션 테이블
         self.action_table = QTableWidget()
-        self.action_table.setColumnCount(4)
-        self.action_table.setHorizontalHeaderLabels(["순서", "타입", "설명", "활성화"])
+        self.action_table.setColumnCount(5)
+        self.action_table.setHorizontalHeaderLabels(
+            ["순서", "타입", "설명", "세부내용", "활성화"]
+        )
+
+        # 테이블 편집 방지 및 행 선택 설정
+        self.action_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.action_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.action_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+
+        # 시그널 연결
         self.action_table.itemSelectionChanged.connect(self.on_action_selected)
+        self.action_table.itemDoubleClicked.connect(self.on_action_double_clicked)
 
         # 헤더 설정
         header = self.action_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # 순서
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # 타입
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # 설명
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # 세부내용
+        header.setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )  # 활성화
 
         # 행 높이 설정 (썸네일을 위해)
         self.action_table.verticalHeader().setDefaultSectionSize(40)
@@ -446,10 +276,6 @@ class MainWindow(QMainWindow):
         self.delete_action_btn.setEnabled(False)
         self.delete_action_btn.clicked.connect(self.delete_action)
         action_btn_layout.addWidget(self.delete_action_btn)
-
-        action_btn_layout.addSeparator = lambda: action_btn_layout.addItem(
-            QHBoxLayout().addWidget(QLabel("|"))
-        )
 
         # 구분선
         separator = QLabel(" | ")
@@ -600,7 +426,6 @@ class MainWindow(QMainWindow):
                 self.add_log("설정 파일 로드 실패")
 
             # UI 업데이트
-            self.refresh_template_list()
             self.refresh_action_table()
             self.update_stats()
 
@@ -609,65 +434,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"데이터 로드 실패: {e}")
             self.add_log(f"데이터 로드 실패: {e}")
-
-    def refresh_template_list(self):
-        """템플릿 목록 새로고침"""
-        self.template_list.setRowCount(0)
-
-        for row, template in enumerate(self.engine.config.image_templates):
-            self.template_list.insertRow(row)
-
-            # 썸네일 컬럼 (0)
-            thumbnail_item = QTableWidgetItem()
-            thumbnail_item.setData(Qt.ItemDataRole.UserRole, template.id)
-
-            try:
-                if template.file_path and Path(template.file_path).exists():
-                    pixmap = QPixmap(template.file_path)
-                    if not pixmap.isNull():
-                        # 48x48 썸네일로 리사이즈
-                        scaled_pixmap = pixmap.scaled(
-                            48,
-                            48,
-                            Qt.AspectRatioMode.KeepAspectRatio,
-                            Qt.TransformationMode.SmoothTransformation,
-                        )
-                        thumbnail_item.setIcon(QIcon(scaled_pixmap))
-                        thumbnail_item.setText("")  # 텍스트 제거
-                    else:
-                        thumbnail_item.setText("❌")
-                else:
-                    thumbnail_item.setText("❌")
-            except Exception:
-                thumbnail_item.setText("❌")
-
-            # 썸네일 항목은 편집 불가
-            thumbnail_item.setFlags(
-                thumbnail_item.flags() & ~Qt.ItemFlag.ItemIsEditable
-            )
-            self.template_list.setItem(row, 0, thumbnail_item)
-
-            # 이름 컬럼 (1)
-            name_item = QTableWidgetItem(template.name)
-            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.template_list.setItem(row, 1, name_item)
-
-            # 크기 컬럼 (2)
-            size_text = "알 수 없음"
-            try:
-                if template.file_path and Path(template.file_path).exists():
-                    pixmap = QPixmap(template.file_path)
-                    if not pixmap.isNull():
-                        size_text = f"{pixmap.width()}×{pixmap.height()}"
-            except Exception:
-                pass
-
-            size_item = QTableWidgetItem(size_text)
-            size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.template_list.setItem(row, 2, size_item)
-
-            # 행 높이 설정
-            self.template_list.setRowHeight(row, 56)
 
     def refresh_action_table(self):
         """액션 테이블 새로고침"""
@@ -695,36 +461,12 @@ class MainWindow(QMainWindow):
             # 설명
             description = self.get_action_description(action)
             desc_item = QTableWidgetItem(description)
-
-            # 이미지 클릭 액션의 경우 썸네일 표시
-            if (
-                action.action_type
-                in [ActionType.CLICK, ActionType.DOUBLE_CLICK, ActionType.RIGHT_CLICK]
-                and action.image_template_id
-            ):
-                template = self.engine.config.get_image_template(
-                    action.image_template_id
-                )
-                if (
-                    template
-                    and template.file_path
-                    and Path(template.file_path).exists()
-                ):
-                    try:
-                        pixmap = QPixmap(template.file_path)
-                        if not pixmap.isNull():
-                            # 32x32 크기로 썸네일 생성
-                            scaled_pixmap = pixmap.scaled(
-                                32,
-                                32,
-                                Qt.AspectRatioMode.KeepAspectRatio,
-                                Qt.TransformationMode.SmoothTransformation,
-                            )
-                            desc_item.setIcon(QIcon(scaled_pixmap))
-                    except Exception:
-                        pass
-
             self.action_table.setItem(i, 2, desc_item)
+
+            # 세부내용
+            details = self.get_action_details(action)
+            detail_item = QTableWidgetItem(details)
+            self.action_table.setItem(i, 3, detail_item)
 
             # 활성화 체크박스
             enabled_checkbox = QCheckBox()
@@ -732,26 +474,17 @@ class MainWindow(QMainWindow):
             enabled_checkbox.toggled.connect(
                 lambda checked, aid=action.id: self.toggle_action_enabled(aid, checked)
             )
-            self.action_table.setCellWidget(i, 3, enabled_checkbox)
+            self.action_table.setCellWidget(i, 4, enabled_checkbox)
 
     def get_action_description(self, action) -> str:
         """액션 설명 생성"""
-        if action.action_type == ActionType.FIND_IMAGE:
-            template = self.engine.config.get_image_template(action.image_template_id)
-            return f"이미지 찾기: {template.name if template else '알 수 없음'}"
-
-        elif action.action_type in [
+        if action.action_type in [
             ActionType.CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
         ]:
             if action.click_position:
                 return f"위치 ({action.click_position[0]}, {action.click_position[1]})"
-            elif action.image_template_id:
-                template = self.engine.config.get_image_template(
-                    action.image_template_id
-                )
-                return f"이미지에서: {template.name if template else '알 수 없음'}"
             else:
                 return "위치 미지정"
 
@@ -773,12 +506,39 @@ class MainWindow(QMainWindow):
         else:
             return action.action_type.value
 
+    def get_action_details(self, action) -> str:
+        """액션 세부내용 생성"""
+        details = []
+
+        # 이미지 템플릿 정보
+        if action.target_image_id:
+            template = self.engine.config.get_image_template(action.target_image_id)
+            if template:
+                details.append(f"이미지: {template.name}")
+            else:
+                details.append(f"이미지: {action.target_image_id}")
+
+        # 매칭 임계값
+        if (
+            action.match_threshold and action.match_threshold != 0.8
+        ):  # 기본값이 아닌 경우만
+            details.append(f"임계값: {action.match_threshold:.2f}")
+
+        # 재시도 횟수
+        if action.retry_count and action.retry_count > 1:
+            details.append(f"재시도: {action.retry_count}회")
+
+        # 설명이 있는 경우
+        if action.description:
+            details.append(f"설명: {action.description}")
+
+        return " | ".join(details) if details else "-"
+
     def update_stats(self):
         """통계 정보 업데이트"""
         sequences = len(self.engine.config.macro_sequences)
-        templates = len(self.engine.config.image_templates)
 
-        stats_text = f"시퀀스: {sequences} | 템플릿: {templates}"
+        stats_text = f"시퀀스: {sequences}"
         self.stats_label.setText(stats_text)
 
     def update_status(self):
@@ -808,14 +568,6 @@ class MainWindow(QMainWindow):
 
     # 이벤트 핸들러들
 
-    def on_template_selected(self):
-        """템플릿 선택 시 (스레드 안전)"""
-        selected_rows = [item.row() for item in self.template_list.selectedItems()]
-        has_selection = len(selected_rows) > 0
-
-        # 메인 스레드에서 실행되도록 예약
-        QTimer.singleShot(0, lambda: self.del_temp_btn.setEnabled(has_selection))
-
     def toggle_action_enabled(self, action_id: str, enabled: bool):
         """액션 활성화/비활성화 토글"""
         # 메인 시퀀스에서 액션 찾아서 업데이트
@@ -834,44 +586,426 @@ class MainWindow(QMainWindow):
 
     # 액션 메소드들
     def start_capture(self):
-        """화면 캡쳐 시작"""
+        """화면 캡쳐 시작 (바로 오버레이 표시)"""
+        logger.info("화면 캡쳐 시작")
+
         if self.is_capturing:
+            logger.warning("이미 캡쳐 중입니다")
             return
 
         try:
             self.is_capturing = True
 
-            # 캡쳐 다이얼로그 생성
-            if not self.capture_dialog:
-                from .capture_dialog import CaptureDialog
+            # 모든 QT 윈도우 숨기기 (액션 에디터 포함)
+            self._hide_all_qt_windows()
 
-                self.capture_dialog = CaptureDialog(self)
-                self.capture_dialog.capture_completed.connect(self.on_capture_completed)
+            # 잠시 대기 후 오버레이 생성 (화면이 완전히 숨겨지도록)
+            from PyQt6.QtCore import QTimer
 
-            # 윈도우 최소화
-            self.showMinimized()
-
-            # 캡쳐 다이얼로그 표시
-            self.capture_dialog.start_capture()
+            QTimer.singleShot(200, self._create_capture_overlay)
 
         except Exception as e:
             logger.error(f"캡쳐 시작 실패: {e}")
             self.add_log(f"캡쳐 시작 실패: {e}")
+            self.is_capturing = False
+            # 오류 발생 시 윈도우 복원
+            self._restore_all_qt_windows()
+
+    def _create_capture_overlay(self):
+        """캡쳐 오버레이 생성 (지연 실행)"""
+        try:
+            from .capture_dialog import ScreenOverlay
+            from PyQt6.QtWidgets import QApplication
+
+            logger.debug("캡쳐 오버레이 생성 시작")
+
+            # 현재 화면 스크린샷 캡쳐 (윈도우들이 숨겨진 상태에서)
+            screen = QApplication.primaryScreen()
+            screenshot = screen.grabWindow(0)
+
+            # HiDPI 디스플레이 지원을 위한 device pixel ratio 설정
+            device_pixel_ratio = screen.devicePixelRatio()
+            screenshot.setDevicePixelRatio(device_pixel_ratio)
+
+            # 오버레이 생성
+            self.capture_overlay = ScreenOverlay(screenshot)
+            self.capture_overlay.selection_completed.connect(
+                self.on_selection_completed
+            )
+            self.capture_overlay.capture_cancelled.connect(self.on_capture_cancelled)
+
+            # 이벤트 처리 강제 실행
+            QApplication.processEvents()
+
+        except Exception as e:
+            logger.error(f"오버레이 생성 실패: {e}")
+            # 오류 발생 시 윈도우 복원
+            self.is_capturing = False
+            self._restore_all_qt_windows()
+
+    def _hide_all_qt_windows(self):
+        """모든 QT 윈도우 숨기기"""
+        try:
+            # 캡쳐 시작 전 현재 열려있는 윈도우들 저장
+            self.hidden_windows = []
+
+            # 메인 윈도우 숨기기
+            if self.isVisible():
+                self.hidden_windows.append(("main", self))
+                self.hide()
+
+            # 액션 에디터 숨기기
+            if hasattr(self, "action_editors"):
+                for editor in self.action_editors:
+                    if editor.isVisible():
+                        self.hidden_windows.append(("editor", editor))
+                        editor.hide()
+
+            # 모든 QDialog 윈도우 숨기기
+            from PyQt6.QtWidgets import QApplication
+
+            for widget in QApplication.allWidgets():
+                if (
+                    widget.isWindow()
+                    and widget.isVisible()
+                    and widget != self.capture_overlay
+                ):
+                    self.hidden_windows.append(("widget", widget))
+                    widget.hide()
+
+            logger.debug(f"숨겨진 윈도우 개수: {len(self.hidden_windows)}")
+
+        except Exception as e:
+            logger.error(f"윈도우 숨기기 실패: {e}")
+
+    def _restore_all_qt_windows(self):
+        """모든 QT 윈도우 복원"""
+        try:
+            if hasattr(self, "hidden_windows"):
+                for window_type, window in self.hidden_windows:
+                    try:
+                        if window and hasattr(window, "show"):
+                            window.show()
+                            if window_type == "main":
+                                window.raise_()
+                                window.activateWindow()
+                    except Exception as e:
+                        logger.error(f"윈도우 복원 실패 ({window_type}): {e}")
+
+                self.hidden_windows = []
+                logger.debug("모든 윈도우 복원 완료")
+
+        except Exception as e:
+            logger.error(f"윈도우 복원 실패: {e}")
+
+    def on_selection_completed(self, rect):
+        """오버레이에서 영역 선택 완료"""
+        try:
+
+            logger.info(f"영역 선택 완료: {rect}")
+
+            # 오버레이 닫기
+            if hasattr(self, "capture_overlay") and self.capture_overlay:
+                self.capture_overlay.close()
+                self.capture_overlay = None
+
+            # 윈도우 복원
+            self._restore_all_qt_windows()
+
+            # 선택 영역이 유효한지 확인
+            if rect.isEmpty() or rect.width() < 10 or rect.height() < 10:
+                from PyQt6.QtWidgets import QMessageBox
+
+                QMessageBox.warning(self, "경고", "선택한 영역이 너무 작습니다.")
+                self.is_capturing = False
+                return
+
+            # 자동으로 템플릿 저장 (UUID 기반 이름)
+            self._auto_save_template(rect)
+
+        except Exception as e:
+            logger.error(f"영역 선택 처리 실패: {e}")
+            self.is_capturing = False
+            self._restore_all_qt_windows()
+
+    def on_capture_cancelled(self):
+        """오버레이에서 캡쳐 취소됨"""
+        try:
+            logger.info("사용자가 캡쳐를 취소했습니다")
+
+            # 오버레이 닫기
+            if hasattr(self, "capture_overlay") and self.capture_overlay:
+                self.capture_overlay.close()
+                self.capture_overlay = None
+
+            # 윈도우 복원
+            self._restore_all_qt_windows()
+            self.is_capturing = False
+
+        except Exception as e:
+            logger.error(f"캡쳐 취소 처리 실패: {e}")
+            self.is_capturing = False
+            self._restore_all_qt_windows()
+
+    def _auto_save_template(self, rect):
+        """자동으로 템플릿 저장 (UUID 기반 이름)"""
+        try:
+            import uuid
+            from pathlib import Path
+            from PyQt6.QtWidgets import QApplication
+            from ..models.macro_models import CaptureRegion, ImageTemplate
+
+            if not self.engine:
+                logger.error("매크로 엔진이 연결되지 않았습니다")
+                self.is_capturing = False
+                return
+
+            # UUID 기반 자동 이름 생성
+            template_id = str(uuid.uuid4())
+            template_name = f"template_{template_id[:8]}"
+
+            # 기본 임계값 사용
+            threshold = 0.8
+
+            # 스크린샷 캡쳐
+            screen = QApplication.primaryScreen()
+            screenshot = screen.grabWindow(
+                0, rect.x(), rect.y(), rect.width(), rect.height()
+            )
+
+            if screenshot.isNull():
+                logger.error("스크린샷 캡쳐에 실패했습니다")
+                self.is_capturing = False
+                return
+
+            # 파일 저장
+            screenshot_dir = Path(self.engine.config.screenshot_save_path)
+            screenshot_dir.mkdir(parents=True, exist_ok=True)
+
+            file_name = f"{template_name}.png"
+            file_path = screenshot_dir / file_name
+
+            if not screenshot.save(str(file_path), "PNG"):
+                logger.error("이미지 저장에 실패했습니다")
+                self.is_capturing = False
+                return
+
+            # 캡쳐 영역 생성
+            capture_region = CaptureRegion(
+                x=rect.x(), y=rect.y(), width=rect.width(), height=rect.height()
+            )
+
+            # 이미지 템플릿 생성
+            template = ImageTemplate(
+                id=template_id,
+                name=template_name,
+                file_path=str(file_path),
+                capture_region=capture_region,
+                threshold=threshold,
+            )
+
+            # 엔진에 추가
+            self.engine.config.add_image_template(template)
+            self.engine.save_config()
+
+            logger.info(f"이미지 템플릿 자동 생성됨: {template_name} ({file_path})")
+
+            # 캡쳐 완료 처리 (액션 에디터에 알림)
+            self.on_capture_completed(template_id, template_name)
+
+        except Exception as e:
+            logger.error(f"자동 템플릿 저장 실패: {e}")
             self.is_capturing = False
 
     def on_capture_completed(self, template_id: str, template_name: str):
         """캡쳐 완료 시"""
         self.is_capturing = False
 
-        # 윈도우 복원
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
-
-        # 템플릿 목록 새로고침
-        self.refresh_template_list()
+        # 모든 윈도우 복원
+        self._restore_all_qt_windows()
 
         self.add_log(f"이미지 템플릿 추가됨: {template_name}")
+
+        # 등록된 액션 에디터들에게 알림
+        notified_editors = []
+        for editor in self.action_editors[:]:  # 복사본으로 순회
+            # 액션 에디터 유효성 검사
+            if not self._is_widget_valid(editor):
+                # 유효하지 않은 에디터는 목록에서 제거
+                try:
+                    self.action_editors.remove(editor)
+                except ValueError:
+                    pass  # 이미 제거됨
+                continue
+
+            if hasattr(editor, "on_capture_completed"):
+                try:
+                    # 안전한 메서드 호출
+                    QTimer.singleShot(
+                        0,
+                        lambda e=editor: self._safe_notify_capture_completion(
+                            e, template_id, template_name
+                        ),
+                    )
+                    notified_editors.append(editor)
+                except Exception as e:
+                    logger.error(f"액션 에디터 캡쳐 완료 알림 실패: {e}")
+                    # 오류 발생한 에디터는 목록에서 제거
+                    try:
+                        self.action_editors.remove(editor)
+                    except ValueError:
+                        pass
+
+        # 등록된 액션 에디터가 없으면 새로운 액션 에디터 다이얼로그 생성
+        if not notified_editors:
+            QTimer.singleShot(
+                100, lambda: self._create_new_action_editor(template_id, template_name)
+            )
+
+    def _is_widget_valid(self, widget) -> bool:
+        """위젯이 유효한지 확인"""
+        try:
+            # 위젯이 None이거나 C++ 객체가 삭제되었는지 확인
+            if widget is None:
+                return False
+
+            # Qt 객체가 삭제되었는지 확인하는 방법들
+            # 1. 기본 속성 접근 시도
+            _ = widget.isVisible()
+
+            # 2. 부모 위젯 확인
+            _ = widget.parent()
+
+            return True
+
+        except (RuntimeError, AttributeError):
+            # "wrapped C/C++ object has been deleted" 오류나 속성 오류
+            return False
+
+    def _create_new_action_editor(self, template_id: str, template_name: str):
+        """새로운 액션 에디터 다이얼로그 생성"""
+        try:
+            from .action_editor import ActionEditor
+            from ..models.macro_models import MacroAction, ActionType
+
+            # 새 액션 생성 (클릭 액션으로 기본 설정)
+            action = MacroAction(
+                id=str(uuid.uuid4()),
+                action_type=ActionType.CLICK,
+                image_template_id=template_id,
+            )
+
+            # 액션 에디터 다이얼로그 생성
+            editor = ActionEditor(parent=self, action=action)
+
+            # 액션 에디터를 목록에 추가
+            self.action_editors.append(editor)
+
+            # 에디터가 닫힐 때 목록에서 제거되도록 연결
+            editor.destroyed.connect(lambda: self._remove_action_editor(editor))
+
+            # 액션 저장 시그널 연결
+            if hasattr(editor, "action_saved"):
+                editor.action_saved.connect(self._on_action_saved_from_capture)
+
+            # 캡쳐 완료 이벤트 전달
+            if hasattr(editor, "on_capture_completed"):
+                editor.on_capture_completed(template_id, template_name)
+
+            # 다이얼로그 표시
+            editor.show()
+            editor.raise_()
+            editor.activateWindow()
+
+            logger.info(f"새로운 액션 에디터 다이얼로그 생성: {template_name}")
+
+        except Exception as e:
+            logger.error(f"액션 에디터 다이얼로그 생성 실패: {e}")
+
+    def _on_action_saved_from_capture(self, action):
+        """캡쳐로부터 생성된 액션이 저장되었을 때"""
+        try:
+            # 메인 시퀀스에 액션 추가
+            if not self.engine.config.macro_sequences:
+                from ..models.macro_models import MacroSequence
+
+                sequence = MacroSequence(
+                    id="main_sequence",
+                    name="메인 시퀀스",
+                    description="기본 매크로 시퀀스",
+                )
+                self.engine.config.add_macro_sequence(sequence)
+
+            # 첫 번째 시퀀스에 액션 추가
+            main_sequence = self.engine.config.macro_sequences[0]
+            main_sequence.add_action(action)
+            self.engine.save_config()
+
+            # UI 업데이트
+            self.refresh_action_table()
+
+            logger.info(f"캡쳐된 액션이 메인 시퀀스에 추가됨: {action}")
+            self.add_log(f"액션이 추가됨: {action.action_type.value}")
+
+        except Exception as e:
+            logger.error(f"캡쳐된 액션 저장 처리 실패: {e}")
+
+    def _remove_action_editor(self, editor):
+        """액션 에디터를 목록에서 제거"""
+        try:
+            if editor in self.action_editors:
+                self.action_editors.remove(editor)
+                logger.debug("액션 에디터가 목록에서 제거됨")
+        except (ValueError, RuntimeError):
+            # 이미 제거되었거나 객체가 삭제됨
+            pass
+
+    def _safe_notify_capture_completion(
+        self, editor, template_id: str, template_name: str
+    ):
+        """안전한 캡쳐 완료 알림"""
+        try:
+            # 다시 한번 유효성 검사
+            if not self._is_widget_valid(editor):
+                try:
+                    self.action_editors.remove(editor)
+                except ValueError:
+                    pass
+                return
+
+            # 안전한 메서드 호출
+            if hasattr(editor, "on_capture_completed"):
+                editor.on_capture_completed(template_id, template_name)
+
+        except Exception as e:
+            logger.error(f"캡쳐 완료 알림 중 오류: {e}")
+            # 오류 발생한 에디터는 목록에서 제거
+            try:
+                self.action_editors.remove(editor)
+            except ValueError:
+                pass
+
+    def register_action_editor(self, editor):
+        """액션 에디터 등록"""
+        if editor not in self.action_editors:
+            self.action_editors.append(editor)
+
+            # 에디터가 닫힐 때 자동으로 등록 해제하도록 연결
+            if hasattr(editor, "finished"):
+                editor.finished.connect(lambda: self.unregister_action_editor(editor))
+
+            # destroyed 시그널도 연결하여 더 안전하게 처리
+            editor.destroyed.connect(lambda: self._remove_action_editor(editor))
+
+    def unregister_action_editor(self, editor):
+        """액션 에디터 등록 해제"""
+        try:
+            if editor in self.action_editors:
+                self.action_editors.remove(editor)
+                logger.debug(f"액션 에디터 등록 해제됨")
+        except (ValueError, RuntimeError):
+            # 이미 제거되었거나 객체가 삭제됨
+            pass
 
     def on_action_selected(self):
         """액션 선택 시 (스레드 안전)"""
@@ -880,6 +1014,51 @@ class MainWindow(QMainWindow):
 
         # 메인 스레드에서 실행되도록 예약
         QTimer.singleShot(0, lambda: self._update_action_buttons(has_selection))
+
+    def on_action_double_clicked(self, item):
+        """테이블 행 더블클릭 시 액션 편집"""
+        if item is None:
+            return
+
+        row = item.row()
+
+        # 체크박스 열은 편집 다이얼로그를 열지 않음
+        if item.column() == 4:  # 활성화 체크박스 열
+            return
+
+        # 액션 편집 호출
+        self._edit_action_by_row(row)
+
+    def _edit_action_by_row(self, row: int):
+        """지정된 행의 액션 편집"""
+        try:
+            if not self.engine.config.macro_sequences:
+                return
+
+            sequence = self.engine.config.macro_sequences[0]
+            if row >= len(sequence.actions):
+                return
+
+            action = sequence.actions[row]
+
+            # 액션 에디터 다이얼로그 열기 (편집 모드)
+            from .action_editor import ActionEditor
+
+            dialog = ActionEditor(self, action)
+            dialog.action_saved.connect(
+                lambda updated_action: self.on_action_edited(row, updated_action)
+            )
+            dialog.capture_requested.connect(self.start_capture)
+
+            # 액션 에디터 등록 (캡쳐 완료 알림용)
+            self.register_action_editor(dialog)
+
+            # 모달 대화상자로 열기
+            dialog.exec()
+
+        except Exception as e:
+            logger.error(f"액션 편집 실패: {e}")
+            QMessageBox.critical(self, "오류", f"액션을 편집할 수 없습니다: {e}")
 
     def _update_action_buttons(self, has_selection: bool):
         """액션 버튼 상태 업데이트 (메인 스레드에서 실행)"""
@@ -924,6 +1103,10 @@ class MainWindow(QMainWindow):
 
             dialog = ActionEditor(self)
             dialog.action_saved.connect(self.on_action_added)
+            dialog.capture_requested.connect(self.start_capture)
+
+            # 액션 에디터 등록 (캡쳐 완료 알림용)
+            self.register_action_editor(dialog)
 
             # 모달 대화상자로 열기
             result = dialog.exec()
@@ -960,6 +1143,10 @@ class MainWindow(QMainWindow):
             dialog.action_saved.connect(
                 lambda updated_action: self.on_action_edited(row, updated_action)
             )
+            dialog.capture_requested.connect(self.start_capture)
+
+            # 액션 에디터 등록 (캡쳐 완료 알림용)
+            self.register_action_editor(dialog)
 
             # 모달 대화상자로 열기
             result = dialog.exec()
@@ -1090,11 +1277,118 @@ class MainWindow(QMainWindow):
                 self.refresh_action_table()
                 self.update_stats()
 
-                self.add_log(f"액션 추가됨: {action.action_type.value}")
+                # 설명 포함한 로그
+                description = getattr(action, "description", "") or ""
+                log_text = f"액션 추가됨: {action.action_type.value}"
+                if description:
+                    log_text += f" ({description})"
+                self.add_log(log_text)
 
         except Exception as e:
             logger.error(f"액션 추가 저장 실패: {e}")
             QMessageBox.critical(self, "오류", f"액션을 저장할 수 없습니다: {e}")
+
+    def refresh_action_table(self):
+        """액션 테이블 새로고침"""
+        try:
+            # 테이블 초기화
+            self.action_table.setRowCount(0)
+
+            if not self.engine.config.macro_sequences:
+                return
+
+            # 메인 시퀀스의 액션들 표시
+            sequence = self.engine.config.macro_sequences[0]
+            actions = sequence.actions
+
+            self.action_table.setRowCount(len(actions))
+
+            # 액션 타입 한글 매핑
+            type_map = {
+                ActionType.CLICK: "클릭",
+                ActionType.DOUBLE_CLICK: "더블클릭",
+                ActionType.RIGHT_CLICK: "우클릭",
+                ActionType.TYPE_TEXT: "텍스트 입력",
+                ActionType.KEY_PRESS: "키 입력",
+                ActionType.WAIT: "대기",
+                ActionType.SEND_TELEGRAM: "텔레그램 전송",
+            }
+
+            for i, action in enumerate(actions):
+                # 순서
+                from PyQt6.QtWidgets import QTableWidgetItem
+                from PyQt6.QtCore import Qt
+
+                order_item = QTableWidgetItem(str(i + 1))
+                order_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.action_table.setItem(i, 0, order_item)
+
+                # 타입
+                type_text = type_map.get(action.action_type, action.action_type.value)
+                type_item = QTableWidgetItem(type_text)
+                self.action_table.setItem(i, 1, type_item)
+
+                # 설명
+                description = getattr(action, "description", "") or ""
+                description_item = QTableWidgetItem(description)
+                self.action_table.setItem(i, 2, description_item)
+
+                # 세부내용 생성
+                detail_text = self._get_action_detail(action)
+                detail_item = QTableWidgetItem(detail_text)
+                self.action_table.setItem(i, 3, detail_item)
+
+                # 활성화 상태
+                enabled_text = "✓" if action.enabled else "✗"
+                enabled_item = QTableWidgetItem(enabled_text)
+                enabled_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.action_table.setItem(i, 4, enabled_item)
+
+        except Exception as e:
+            logger.error(f"액션 테이블 새로고침 실패: {e}")
+
+    def _get_action_detail(self, action) -> str:
+        """액션의 세부 내용 텍스트 생성"""
+        try:
+            if action.action_type in [
+                ActionType.CLICK,
+                ActionType.DOUBLE_CLICK,
+                ActionType.RIGHT_CLICK,
+            ]:
+                if action.image_template_id:
+                    template = self.engine.config.get_image_template(
+                        action.image_template_id
+                    )
+                    template_name = template.name if template else "Unknown"
+                    if action.click_position:
+                        return f"이미지: {template_name} ({action.click_position[0]}, {action.click_position[1]})"
+                    else:
+                        return f"이미지: {template_name}"
+                elif action.click_position:
+                    return f"좌표: ({action.click_position[0]}, {action.click_position[1]})"
+                else:
+                    return ""
+
+            elif action.action_type == ActionType.TYPE_TEXT:
+                text = action.text_input or ""
+                return text[:50] + "..." if len(text) > 50 else text
+
+            elif action.action_type == ActionType.KEY_PRESS:
+                keys = action.key_combination or []
+                return " + ".join(keys)
+
+            elif action.action_type == ActionType.WAIT:
+                return f"{action.wait_seconds or 1.0}초"
+
+            elif action.action_type == ActionType.SEND_TELEGRAM:
+                message = action.telegram_message or ""
+                return message[:50] + "..." if len(message) > 50 else message
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"액션 세부내용 생성 실패: {e}")
+            return ""
 
     def on_action_edited(self, row, updated_action):
         """액션 편집 완료 시"""
@@ -1113,66 +1407,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"액션 편집 저장 실패: {e}")
             QMessageBox.critical(self, "오류", f"액션을 저장할 수 없습니다: {e}")
-
-    def delete_template(self):
-        """템플릿 삭제"""
-        selected_rows = [item.row() for item in self.template_list.selectedItems()]
-        if not selected_rows:
-            return
-
-        # 첫 번째 컬럼(썸네일)에서 template_id 가져오기
-        row = selected_rows[0]
-        thumbnail_item = self.template_list.item(row, 0)
-        if not thumbnail_item:
-            return
-
-        template_id = thumbnail_item.data(Qt.ItemDataRole.UserRole)
-        template = self.engine.config.get_image_template(template_id)
-
-        if not template:
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "템플릿 삭제",
-            f"이미지 템플릿 '{template.name}'을 삭제하시겠습니까?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            if self.engine.config.remove_image_template(template_id):
-                self.engine.save_config()
-                self.refresh_template_list()
-                self.update_stats()
-                self.add_log(f"템플릿 삭제됨: {template.name}")
-
-    def on_template_double_clicked(self, item: QTableWidgetItem):
-        """템플릿 더블클릭 시 이미지 미리보기"""
-        if not item:
-            return
-
-        # 클릭된 행의 썸네일 항목에서 template_id 가져오기
-        row = item.row()
-        thumbnail_item = self.template_list.item(row, 0)
-        if not thumbnail_item:
-            return
-
-        template_id = thumbnail_item.data(Qt.ItemDataRole.UserRole)
-        template = self.engine.config.get_image_template(template_id)
-
-        if not template:
-            return
-
-        try:
-            # 이미지 미리보기 다이얼로그 열기
-            preview_dialog = ImagePreviewDialog(template.file_path, template.name, self)
-            preview_dialog.exec()
-
-        except Exception as e:
-            logger.error(f"이미지 미리보기 오류: {e}")
-            QMessageBox.critical(
-                self, "오류", f"이미지 미리보기를 열 수 없습니다:\n{str(e)}"
-            )
 
     def run_main_sequence(self):
         """메인 시퀀스 실행"""
@@ -1291,9 +1525,7 @@ class MainWindow(QMainWindow):
 
         if reply == QMessageBox.StandardButton.Yes:
             self.engine.config = self.engine.config.__class__()
-            self.refresh_sequence_list()
-            self.refresh_template_list()
-            self.refresh_action_table(None)
+            self.refresh_action_table()
             self.update_stats()
             self.add_log("새 설정으로 시작됨")
 
@@ -1307,9 +1539,7 @@ class MainWindow(QMainWindow):
             try:
                 self.engine.config_path = file_path
                 if self.engine.load_config():
-                    self.refresh_sequence_list()
-                    self.refresh_template_list()
-                    self.refresh_action_table(None)
+                    self.refresh_action_table()
                     self.update_stats()
                     self.add_log(f"설정 파일 로드됨: {file_path}")
                 else:
