@@ -31,27 +31,72 @@ class InputController:
         # 마우스 이동 설정
         self.mouse_move_duration = 0.2
 
+        # 좌표 스케일링 팩터 (HiDPI 대응)
+        self.scale_factor = self._get_display_scale_factor()
+
+        logger.info(f"Display scale factor: {self.scale_factor}")
+
+    def _get_display_scale_factor(self) -> float:
+        """디스플레이 스케일 팩터 계산"""
+        try:
+            # PyAutoGUI의 화면 크기와 실제 스크린샷 크기 비교
+            screen_size = pyautogui.size()
+            screenshot = pyautogui.screenshot()
+
+            # 스케일 팩터 계산
+            scale_x = screenshot.width / screen_size.width
+            scale_y = screenshot.height / screen_size.height
+
+            # 일반적으로 x, y 스케일이 같으므로 x 스케일 사용
+            scale_factor = scale_x
+
+            logger.debug(
+                f"Screen size: {screen_size}, Screenshot size: {screenshot.size}, Scale: {scale_factor}"
+            )
+
+            return scale_factor
+
+        except Exception as e:
+            logger.error(f"스케일 팩터 계산 실패: {e}")
+            return 1.0  # 기본값
+
+    def _adjust_coordinates(self, x: int, y: int) -> Tuple[int, int]:
+        """HiDPI 디스플레이를 위한 좌표 보정"""
+        if self.scale_factor != 1.0:
+            adjusted_x = int(x / self.scale_factor)
+            adjusted_y = int(y / self.scale_factor)
+            logger.debug(
+                f"좌표 보정: ({x}, {y}) -> ({adjusted_x}, {adjusted_y}) (scale: {self.scale_factor})"
+            )
+            return adjusted_x, adjusted_y
+        return x, y
+
     def move_mouse(
         self, x: int, y: int, duration: Optional[float] = None, smooth: bool = True
     ) -> bool:
         """마우스 이동"""
         try:
+            # 좌표 보정 적용
+            adjusted_x, adjusted_y = self._adjust_coordinates(x, y)
+
             if duration is None:
                 duration = self.mouse_move_duration if smooth else 0
 
             current_x, current_y = pyautogui.position()
-            logger.debug(f"마우스 이동: ({current_x}, {current_y}) -> ({x}, {y})")
+            logger.debug(
+                f"마우스 이동: ({current_x}, {current_y}) -> ({adjusted_x}, {adjusted_y}) [원본: ({x}, {y})]"
+            )
 
             # 여러 번 시도로 정확도 향상 (macOS 호환성)
             max_attempts = 3
             for attempt in range(max_attempts):
-                pyautogui.moveTo(x, y, duration=duration)
+                pyautogui.moveTo(adjusted_x, adjusted_y, duration=duration)
                 time.sleep(0.05)  # 짧은 대기
 
                 # 이동 확인
                 final_x, final_y = pyautogui.position()
-                error_x = abs(final_x - x)
-                error_y = abs(final_y - y)
+                error_x = abs(final_x - adjusted_x)
+                error_y = abs(final_y - adjusted_y)
 
                 if error_x <= 3 and error_y <= 3:  # 3픽셀 오차 허용
                     logger.debug(
@@ -67,7 +112,7 @@ class InputController:
 
             # 모든 시도 실패
             logger.warning(
-                f"마우스 이동 부정확 ({max_attempts}번 시도): 목표({x}, {y}), 실제({final_x}, {final_y})"
+                f"마우스 이동 부정확 ({max_attempts}번 시도): 목표({adjusted_x}, {adjusted_y}), 실제({final_x}, {final_y})"
             )
             return False
 
@@ -86,14 +131,27 @@ class InputController:
         """마우스 클릭"""
         try:
             if x is not None and y is not None:
+                # 좌표 보정 적용
+                adjusted_x, adjusted_y = self._adjust_coordinates(x, y)
+
                 # 지정된 위치로 이동 후 클릭
                 if not self.move_mouse(x, y):
                     return False
                 time.sleep(self.click_delay)
 
-            logger.debug(f"마우스 클릭: 버튼={button}, 횟수={clicks}, 위치=({x}, {y})")
-
-            pyautogui.click(x=x, y=y, clicks=clicks, interval=interval, button=button)
+                logger.debug(
+                    f"마우스 클릭: 버튼={button}, 횟수={clicks}, 위치=({adjusted_x}, {adjusted_y}) [원본: ({x}, {y})]"
+                )
+                pyautogui.click(
+                    x=adjusted_x,
+                    y=adjusted_y,
+                    clicks=clicks,
+                    interval=interval,
+                    button=button,
+                )
+            else:
+                logger.debug(f"마우스 클릭: 버튼={button}, 횟수={clicks}, 현재 위치")
+                pyautogui.click(clicks=clicks, interval=interval, button=button)
 
             time.sleep(self.default_delay)
             return True
@@ -106,12 +164,20 @@ class InputController:
         """더블클릭"""
         try:
             if x is not None and y is not None:
+                # 좌표 보정 적용
+                adjusted_x, adjusted_y = self._adjust_coordinates(x, y)
+
                 if not self.move_mouse(x, y):
                     return False
                 time.sleep(self.click_delay)
 
-            logger.debug(f"더블클릭: ({x}, {y})")
-            pyautogui.doubleClick(x=x, y=y)
+                logger.debug(
+                    f"더블클릭: ({adjusted_x}, {adjusted_y}) [원본: ({x}, {y})]"
+                )
+                pyautogui.doubleClick(x=adjusted_x, y=adjusted_y)
+            else:
+                logger.debug(f"더블클릭: 현재 위치")
+                pyautogui.doubleClick()
 
             time.sleep(self.default_delay)
             return True
@@ -124,12 +190,18 @@ class InputController:
         """우클릭"""
         try:
             if x is not None and y is not None:
+                # 좌표 보정 적용
+                adjusted_x, adjusted_y = self._adjust_coordinates(x, y)
+
                 if not self.move_mouse(x, y):
                     return False
                 time.sleep(self.click_delay)
 
-            logger.debug(f"우클릭: ({x}, {y})")
-            pyautogui.rightClick(x=x, y=y)
+                logger.debug(f"우클릭: ({adjusted_x}, {adjusted_y}) [원본: ({x}, {y})]")
+                pyautogui.rightClick(x=adjusted_x, y=adjusted_y)
+            else:
+                logger.debug(f"우클릭: 현재 위치")
+                pyautogui.rightClick()
 
             time.sleep(self.default_delay)
             return True

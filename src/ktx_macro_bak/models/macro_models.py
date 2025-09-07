@@ -9,6 +9,10 @@ from datetime import datetime
 import json
 from pathlib import Path
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ActionType(Enum):
     """매크로 액션 타입"""
@@ -22,6 +26,27 @@ class ActionType(Enum):
     SCROLL = "scroll"
     WAIT = "wait"
     SEND_TELEGRAM = "send_telegram"
+    # 프로그램 흐름 제어
+    IF = "if"
+    ELSE = "else"
+    LOOP = "loop"
+
+
+class ImageSearchFailureAction(Enum):
+    """이미지 탐색 실패 시 처리 옵션"""
+
+    REFRESH_SCREEN = "refresh_screen"  # 화면 새로고침 (F5)
+    RESTART_SEQUENCE = "restart_sequence"  # 매크로 처음부터 재실행
+    SKIP_TO_NEXT = "skip_to_next"  # 무시하고 다음 단계
+    STOP_EXECUTION = "stop_execution"  # 실행 중단
+
+
+class ConditionType(Enum):
+    """조건 타입"""
+
+    IMAGE_FOUND = "image_found"  # 이미지 발견
+    IMAGE_NOT_FOUND = "image_not_found"  # 이미지 미발견
+    ALWAYS = "always"  # 항상 실행
 
 
 @dataclass
@@ -111,6 +136,19 @@ class MacroAction:
     timeout_seconds: float = 10.0
     retry_count: int = 3
 
+    # 이미지 탐색 실패 시 처리 옵션
+    on_image_not_found: ImageSearchFailureAction = (
+        ImageSearchFailureAction.STOP_EXECUTION
+    )
+
+    # 프로그램 흐름 제어 관련
+    condition_type: Optional["ConditionType"] = None  # IF 액션의 조건 타입
+    # NOTE: IF 액션의 이미지도 image_template_id 필드를 공통으로 사용
+    loop_count: Optional[int] = None  # LOOP 액션의 반복 횟수 (None = 무한 루프)
+    loop_actions: Optional[List[str]] = None  # LOOP 내부 액션들의 ID 목록
+    if_actions: Optional[List[str]] = None  # IF 조건이 참일 때 실행할 액션들의 ID 목록
+    else_actions: Optional[List[str]] = None  # ELSE 조건일 때 실행할 액션들의 ID 목록
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -129,6 +167,14 @@ class MacroAction:
             "match_threshold": self.match_threshold,
             "timeout_seconds": self.timeout_seconds,
             "retry_count": self.retry_count,
+            "on_image_not_found": self.on_image_not_found.value,
+            "condition_type": (
+                self.condition_type.value if self.condition_type else None
+            ),
+            "loop_count": self.loop_count,
+            "loop_actions": self.loop_actions,
+            "if_actions": self.if_actions,
+            "else_actions": self.else_actions,
         }
 
     @classmethod
@@ -156,6 +202,20 @@ class MacroAction:
             match_threshold=data.get("match_threshold", 0.7),
             timeout_seconds=data.get("timeout_seconds", 10.0),
             retry_count=data.get("retry_count", 3),
+            on_image_not_found=ImageSearchFailureAction(
+                data.get(
+                    "on_image_not_found", ImageSearchFailureAction.STOP_EXECUTION.value
+                )
+            ),
+            condition_type=(
+                ConditionType(data["condition_type"])
+                if data.get("condition_type")
+                else None
+            ),
+            loop_count=data.get("loop_count"),
+            loop_actions=data.get("loop_actions"),
+            if_actions=data.get("if_actions"),
+            else_actions=data.get("else_actions"),
         )
 
 

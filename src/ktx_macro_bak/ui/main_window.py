@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QPushButton,
     QLabel,
-    QProgressBar,
     QTextEdit,
     QPlainTextEdit,
     QMessageBox,
@@ -62,7 +61,6 @@ class MainWindow(QMainWindow):
         self.action_table: Optional[QTableWidget] = None
         self.log_text: Optional[QTextEdit] = None
         self.status_label: Optional[QLabel] = None
-        self.progress_bar: Optional[QProgressBar] = None
 
         # 액션 에디터 목록 (캡쳐 이벤트 전달용)
         self.action_editors: List = []
@@ -90,8 +88,8 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """UI 초기화"""
         self.setWindowTitle("KTX Macro V2 - 이미지 기반 매크로 도구")
-        self.setMinimumSize(1200, 800)
-        self.resize(1400, 900)
+        self.setMinimumSize(600, 1000)
+        self.resize(600, 1000)
 
         # 전역 스타일시트 설정
         self.setStyleSheet(self.get_global_stylesheet())
@@ -227,9 +225,9 @@ class MainWindow(QMainWindow):
 
         # 액션 테이블
         self.action_table = QTableWidget()
-        self.action_table.setColumnCount(5)
+        self.action_table.setColumnCount(4)
         self.action_table.setHorizontalHeaderLabels(
-            ["순서", "타입", "설명", "세부내용", "활성화"]
+            ["순서", "타입", "설명", "활성화"]
         )
 
         # 테이블 편집 방지 및 행 선택 설정
@@ -248,13 +246,12 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # 순서
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # 타입
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # 설명
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # 세부내용
         header.setSectionResizeMode(
-            4, QHeaderView.ResizeMode.ResizeToContents
+            3, QHeaderView.ResizeMode.ResizeToContents
         )  # 활성화
 
         # 행 높이 설정 (썸네일을 위해)
-        self.action_table.verticalHeader().setDefaultSectionSize(40)
+        self.action_table.verticalHeader().setDefaultSectionSize(30)
 
         action_group_layout.addWidget(self.action_table)
 
@@ -337,11 +334,6 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel("준비됨")
         status_bar.addWidget(self.status_label)
 
-        # 진행률 표시
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        status_bar.addPermanentWidget(self.progress_bar)
-
         # 통계 정보
         self.stats_label = QLabel()
         status_bar.addPermanentWidget(self.stats_label)
@@ -411,11 +403,16 @@ class MainWindow(QMainWindow):
 
     def setup_connections(self):
         """시그널/슬롯 연결"""
-        # 매크로 엔진 콜백 설정
+        # 매크로 엔진 시그널 연결 (스레드 안전)
+        self.engine.sequence_started.connect(self.on_sequence_start)
+        self.engine.sequence_completed.connect(self.on_sequence_complete)
+        self.engine.action_executed.connect(self.on_action_execute)
+        self.engine.engine_error.connect(self.on_engine_error)
+
+        # 기존 콜백 방식도 유지 (하위 호환성)
         self.engine.on_sequence_start = self.on_sequence_start
         self.engine.on_sequence_complete = self.on_sequence_complete
         self.engine.on_action_execute = self.on_action_execute
-        self.engine.on_action_complete = self.on_action_complete
         self.engine.on_error = self.on_engine_error
 
     def load_data(self):
@@ -448,25 +445,29 @@ class MainWindow(QMainWindow):
         ]  # 첫 번째 시퀀스를 메인으로 사용
         self.action_table.setRowCount(len(sequence.actions))
 
+        # 인덴트 레벨 계산
+        indent_levels = self.calculate_action_indents(sequence.actions)
+
         for i, action in enumerate(sequence.actions):
+            indent_level = indent_levels[i] if i < len(indent_levels) else 0
+
             # 순서
             order_item = QTableWidgetItem(str(i + 1))
             order_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.action_table.setItem(i, 0, order_item)
 
-            # 타입
-            type_item = QTableWidgetItem(action.action_type.value)
+            # 타입 (인덴트 적용)
+            type_display = self.get_action_display_name(action, indent_level)
+            type_item = QTableWidgetItem(type_display)
+            # 구조적 요소들에 배경색 적용
+            if action.action_type in [ActionType.IF, ActionType.ELSE, ActionType.LOOP]:
+                type_item.setBackground(Qt.GlobalColor.lightGray)
             self.action_table.setItem(i, 1, type_item)
 
-            # 설명
-            description = self.get_action_description(action)
+            # 설명 (기본 설명)
+            description = action.description or "-"
             desc_item = QTableWidgetItem(description)
             self.action_table.setItem(i, 2, desc_item)
-
-            # 세부내용
-            details = self.get_action_details(action)
-            detail_item = QTableWidgetItem(details)
-            self.action_table.setItem(i, 3, detail_item)
 
             # 활성화 체크박스
             enabled_checkbox = QCheckBox()
@@ -474,7 +475,7 @@ class MainWindow(QMainWindow):
             enabled_checkbox.toggled.connect(
                 lambda checked, aid=action.id: self.toggle_action_enabled(aid, checked)
             )
-            self.action_table.setCellWidget(i, 4, enabled_checkbox)
+            self.action_table.setCellWidget(i, 3, enabled_checkbox)
 
     def get_action_description(self, action) -> str:
         """액션 설명 생성"""
@@ -503,36 +504,63 @@ class MainWindow(QMainWindow):
             msg = action.telegram_message or ""
             return f"텔레그램: {msg[:30]}{'...' if len(msg) > 30 else ''}"
 
+        elif action.action_type == ActionType.IF:
+            condition_text = ""
+            if action.condition_type:
+                condition_map = {
+                    "image_found": "이미지 발견 시",
+                    "image_not_found": "이미지 미발견 시",
+                    "always": "항상",
+                }
+                condition_text = condition_map.get(action.condition_type.value, "조건")
+            return f"IF ({condition_text})"
+
+        elif action.action_type == ActionType.ELSE:
+            return "ELSE"
+
+        elif action.action_type == ActionType.LOOP:
+            if action.loop_count:
+                return f"LOOP ({action.loop_count}회)"
+            else:
+                return "LOOP (무한)"
+
         else:
             return action.action_type.value
 
-    def get_action_details(self, action) -> str:
-        """액션 세부내용 생성"""
-        details = []
+    def calculate_action_indents(self, actions) -> List[int]:
+        """액션들의 인덴트 레벨을 계산"""
+        indents = []
+        current_level = 0
 
-        # 이미지 템플릿 정보
-        if action.target_image_id:
-            template = self.engine.config.get_image_template(action.target_image_id)
-            if template:
-                details.append(f"이미지: {template.name}")
+        for action in actions:
+            if action.action_type == ActionType.IF:
+                indents.append(current_level)
+                current_level += 1
+            elif action.action_type == ActionType.ELSE:
+                # ELSE는 같은 레벨의 IF와 동일한 인덴트
+                indents.append(current_level - 1 if current_level > 0 else 0)
+            elif action.action_type == ActionType.LOOP:
+                indents.append(current_level)
+                current_level += 1
             else:
-                details.append(f"이미지: {action.target_image_id}")
+                indents.append(current_level)
 
-        # 매칭 임계값
-        if (
-            action.match_threshold and action.match_threshold != 0.8
-        ):  # 기본값이 아닌 경우만
-            details.append(f"임계값: {action.match_threshold:.2f}")
+        return indents
 
-        # 재시도 횟수
-        if action.retry_count and action.retry_count > 1:
-            details.append(f"재시도: {action.retry_count}회")
+    def get_action_display_name(self, action, indent_level: int = 0) -> str:
+        """인덴트가 적용된 액션 표시명 생성"""
+        indent = "  " * indent_level  # 2칸씩 인덴트
+        base_description = self.get_action_description(action)
 
-        # 설명이 있는 경우
-        if action.description:
-            details.append(f"설명: {action.description}")
-
-        return " | ".join(details) if details else "-"
+        # 구조적 요소들은 특별한 표시 추가
+        if action.action_type == ActionType.IF:
+            return f"{indent}🔹 {base_description}"
+        elif action.action_type == ActionType.ELSE:
+            return f"{indent}🔸 {base_description}"
+        elif action.action_type == ActionType.LOOP:
+            return f"{indent}🔄 {base_description}"
+        else:
+            return f"{indent}{base_description}"
 
     def update_stats(self):
         """통계 정보 업데이트"""
@@ -1013,7 +1041,7 @@ class MainWindow(QMainWindow):
         has_selection = len(selected_rows) > 0
 
         # 메인 스레드에서 실행되도록 예약
-        QTimer.singleShot(0, lambda: self._update_action_buttons(has_selection))
+        QTimer.singleShot(0, lambda sel=has_selection: self._update_action_buttons(sel))
 
     def on_action_double_clicked(self, item):
         """테이블 행 더블클릭 시 액션 편집"""
@@ -1333,62 +1361,15 @@ class MainWindow(QMainWindow):
                 description_item = QTableWidgetItem(description)
                 self.action_table.setItem(i, 2, description_item)
 
-                # 세부내용 생성
-                detail_text = self._get_action_detail(action)
-                detail_item = QTableWidgetItem(detail_text)
-                self.action_table.setItem(i, 3, detail_item)
 
                 # 활성화 상태
                 enabled_text = "✓" if action.enabled else "✗"
                 enabled_item = QTableWidgetItem(enabled_text)
                 enabled_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.action_table.setItem(i, 4, enabled_item)
+                self.action_table.setItem(i, 3, enabled_item)
 
         except Exception as e:
             logger.error(f"액션 테이블 새로고침 실패: {e}")
-
-    def _get_action_detail(self, action) -> str:
-        """액션의 세부 내용 텍스트 생성"""
-        try:
-            if action.action_type in [
-                ActionType.CLICK,
-                ActionType.DOUBLE_CLICK,
-                ActionType.RIGHT_CLICK,
-            ]:
-                if action.image_template_id:
-                    template = self.engine.config.get_image_template(
-                        action.image_template_id
-                    )
-                    template_name = template.name if template else "Unknown"
-                    if action.click_position:
-                        return f"이미지: {template_name} ({action.click_position[0]}, {action.click_position[1]})"
-                    else:
-                        return f"이미지: {template_name}"
-                elif action.click_position:
-                    return f"좌표: ({action.click_position[0]}, {action.click_position[1]})"
-                else:
-                    return ""
-
-            elif action.action_type == ActionType.TYPE_TEXT:
-                text = action.text_input or ""
-                return text[:50] + "..." if len(text) > 50 else text
-
-            elif action.action_type == ActionType.KEY_PRESS:
-                keys = action.key_combination or []
-                return " + ".join(keys)
-
-            elif action.action_type == ActionType.WAIT:
-                return f"{action.wait_seconds or 1.0}초"
-
-            elif action.action_type == ActionType.SEND_TELEGRAM:
-                message = action.telegram_message or ""
-                return message[:50] + "..." if len(message) > 50 else message
-
-            return ""
-
-        except Exception as e:
-            logger.error(f"액션 세부내용 생성 실패: {e}")
-            return ""
 
     def on_action_edited(self, row, updated_action):
         """액션 편집 완료 시"""
@@ -1434,30 +1415,23 @@ class MainWindow(QMainWindow):
             self.stop_btn.setEnabled(True)
             self.stop_action.setEnabled(True)
 
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, len(sequence.actions))
-            self.progress_bar.setValue(0)
-
             self.add_log(f"매크로 시퀀스 실행 시작: {sequence.name}")
 
             # 매크로 실행 전 창 숨기기
+            logger.debug("매크로 실행을 위해 메인 윈도우 숨김")
             self.hide()
 
             # 화면이 업데이트되기를 잠시 기다림
             QApplication.processEvents()
-            QTimer.singleShot(500, lambda: self._start_macro_execution(sequence))
+            QTimer.singleShot(
+                100, lambda seq=sequence: self._start_macro_execution(seq)
+            )
 
         except Exception as e:
             logger.error(f"시퀀스 실행 실패: {e}")
             self.show()  # 오류 발생 시 창 다시 표시
             QMessageBox.critical(self, "오류", f"시퀀스를 실행할 수 없습니다: {e}")
             self.reset_execution_ui()
-        finally:    
-            self.run_btn.setEnabled(True)
-            self.run_action.setEnabled(True)
-            self.stop_btn.setEnabled(False)
-            self.stop_action.setEnabled(False)
-            self.progress_bar.setVisible(False)
 
     def _start_macro_execution(self, sequence):
         """실제 매크로 실행 (지연 실행)"""
@@ -1488,11 +1462,35 @@ class MainWindow(QMainWindow):
 
     def _reset_execution_ui_impl(self):
         """실행 UI 초기화 실제 구현 (메인 스레드에서 실행)"""
-        self.run_btn.setEnabled(True)
-        self.run_action.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.stop_action.setEnabled(False)
-        self.progress_bar.setVisible(False)
+        try:
+            # 버튼 상태 복원
+            self.run_btn.setEnabled(True)
+            self.run_action.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self.stop_action.setEnabled(False)
+
+            # 창이 숨겨져 있다면 다시 표시
+            if self.isHidden():
+                logger.debug("메인 윈도우 복원 중...")
+                self.show()
+                self.raise_()
+                self.activateWindow()
+
+                # 잠시 후 다시 한번 확실히 활성화
+                QTimer.singleShot(100, self._ensure_window_visible)
+
+        except Exception as e:
+            logger.error(f"UI 초기화 중 오류: {e}")
+
+    def _ensure_window_visible(self):
+        """윈도우가 확실히 보이도록 보장"""
+        try:
+            if not self.isActiveWindow():
+                self.raise_()
+                self.activateWindow()
+                logger.debug("윈도우 활성화 재시도 완료")
+        except Exception as e:
+            logger.error(f"윈도우 활성화 재시도 실패: {e}")
 
     def clear_log(self):
         """로그 지우기"""
@@ -1621,75 +1619,124 @@ class MainWindow(QMainWindow):
             self.add_log(f"시퀀스 시작: {sequence.name}")
 
     def on_sequence_complete(self, sequence_id: str, result: MacroExecutionResult):
-        """시퀀스 완료 시 (스레드 안전)"""
-        self.show()
-        self.raise_()
-        self.activateWindow()
-        # FIXME: 여기에서 프로그램 멈추는 오류 있음
-        # 메인 스레드에서 실행되도록 예약
-        QTimer.singleShot(
-            0, lambda: self._on_sequence_complete_impl(sequence_id, result)
-        )
+        """시퀀스 완료 시 (이미 메인 스레드에서 호출됨)"""
+        logger.debug(f"시퀀스 완료: {sequence_id} {result = }")
+        # MacroEngine에서 이미 메인 스레드로 전달했으므로 직접 호출
+        self._on_sequence_complete_impl(sequence_id, result)
 
     def _on_sequence_complete_impl(
         self, sequence_id: str, result: MacroExecutionResult
     ):
-        # 매크로 완료 후 창 다시 표시
-        if self.isHidden():
-            self.show()
+        logger.debug(f"_on_sequence_complete_impl 시퀀스 완료: {sequence_id}")
+        """시퀀스 완료 시 실제 구현 (메인 스레드에서 실행)"""
+        try:
+            # 매크로 완료 후 창 다시 표시
+            if self.isHidden():
+                self.show()
+                self.raise_()
+                self.activateWindow()
+
+            sequence = self.engine.config.get_macro_sequence(sequence_id)
+            sequence_name = sequence.name if sequence else "알 수 없음"
+
+            status = "성공" if result.success else "실패"
+            self.add_log(
+                f"시퀀스 완료: {sequence_name} - {status} "
+                f"({result.steps_executed}/{result.total_steps} 단계, "
+                f"{result.execution_time:.2f}초)"
+            )
+
+            if not result.success and result.error_message:
+                self.add_log(f"오류: {result.error_message}")
+
+            # UI 리셋
+            self.reset_execution_ui()
+
+            # 완료 팝업을 지연해서 표시 (UI 복원 후)
+            QTimer.singleShot(
+                200, lambda: self._show_completion_popup(sequence_name, result)
+            )
+
+        except Exception as e:
+            logger.error(f"시퀀스 완료 처리 중 오류: {e}")
+            # 오류 발생 시에도 UI는 복원
+            self.reset_execution_ui()
+            if self.isHidden():
+                self.show()
+                self.raise_()
+                self.activateWindow()
+
+    def _show_completion_popup(self, sequence_name: str, result: MacroExecutionResult):
+        """시퀀스 완료 팝업 표시"""
+        try:
+            # 메인 윈도우가 확실히 보이고 활성화되었는지 확인
+            if self.isHidden():
+                self.show()
+
             self.raise_()
             self.activateWindow()
-        logger.debug(f"시퀀스 완료 콜백 호출 22: {sequence_id}")
-        """시퀀스 완료 시 실제 구현 (메인 스레드에서 실행)"""
-        sequence = self.engine.config.get_macro_sequence(sequence_id)
-        sequence_name = sequence.name if sequence else "알 수 없음"
 
-        status = "성공" if result.success else "실패"
-        self.add_log(
-            f"시퀀스 완료: {sequence_name} - {status} "
-            f"({result.steps_executed}/{result.total_steps} 단계, "
-            f"{result.execution_time:.2f}초)"
-        )
+            # 이벤트 처리 허용
+            QApplication.processEvents()
 
-        if not result.success and result.error_message:
-            self.add_log(f"오류: {result.error_message}")
+            # 성공/실패에 따른 메시지 설정
+            if result.success:
+                title = "매크로 실행 완료"
+                icon = QMessageBox.Icon.Information
+                message = (
+                    f"시퀀스 '{sequence_name}'이(가) 성공적으로 완료되었습니다!\n\n"
+                    f"실행된 단계: {result.steps_executed}/{result.total_steps}\n"
+                    f"실행 시간: {result.execution_time:.2f}초"
+                )
+            else:
+                title = "매크로 실행 실패"
+                icon = QMessageBox.Icon.Warning
+                message = (
+                    f"시퀀스 '{sequence_name}' 실행 중 오류가 발생했습니다.\n\n"
+                    f"실행된 단계: {result.steps_executed}/{result.total_steps}\n"
+                    f"실행 시간: {result.execution_time:.2f}초"
+                )
+                if result.error_message:
+                    message += f"\n\n오류 내용: {result.error_message}"
 
+            # 팝업 표시
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(icon)
+            msg_box.setWindowTitle(title)
+            msg_box.setText(message)
+            msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
 
-        # UI 리셋
-        self.reset_execution_ui()
+            # 팝업 윈도우 설정
+            msg_box.setWindowFlags(
+                msg_box.windowFlags() | Qt.WindowType.WindowStaysOnTopHint
+            )
+
+            # 팝업을 중앙에 위치시키기
+            if self.isVisible():
+                msg_box.move(
+                    self.x() + (self.width() - msg_box.width()) // 2,
+                    self.y() + (self.height() - msg_box.height()) // 2,
+                )
+
+            logger.debug(f"완료 팝업 표시: {title}")
+
+            # 팝업을 모달로 표시
+            result_code = msg_box.exec()
+
+            logger.debug(f"완료 팝업 닫힘: {result_code}")
+
+        except Exception as e:
+            logger.error(f"완료 팝업 표시 중 오류: {e}")
+            # 팝업 표시 실패 시 로그로라도 알림
+            if result.success:
+                self.add_log(f"✅ 매크로 실행 완료: {sequence_name}")
+            else:
+                self.add_log(f"❌ 매크로 실행 실패: {sequence_name}")
 
     def on_action_execute(self, sequence_id: str, action):
-        """액션 실행 시 (스레드 안전)"""
-        # 메인 스레드에서 실행되도록 예약
-        QTimer.singleShot(0, lambda: self._on_action_execute_impl(sequence_id, action))
-
-    def _on_action_execute_impl(self, sequence_id: str, action):
-        """액션 실행 시 실제 구현 (메인 스레드에서 실행)"""
+        """액션 실행 시 (이미 메인 스레드에서 호출됨)"""
+        # MacroEngine에서 이미 메인 스레드로 전달했으므로 직접 호출
         self.add_log(f"액션 실행: {action.action_type.value}")
-
-        # 진행률 업데이트
-        sequence = self.engine.config.get_macro_sequence(sequence_id)
-        if sequence:
-            current_index = sequence.actions.index(action)
-            self.progress_bar.setValue(current_index)
-
-    def on_action_complete(self, sequence_id: str, action, success: bool):
-        """액션 완료 시 (스레드 안전)"""
-        # 메인 스레드에서 실행되도록 예약
-        QTimer.singleShot(
-            0, lambda: self._on_action_complete_impl(sequence_id, action, success)
-        )
-
-    def _on_action_complete_impl(self, sequence_id: str, action, success: bool):
-        """액션 완료 시 실제 구현 (메인 스레드에서 실행)"""
-        status = "성공" if success else "실패"
-        self.add_log(f"액션 완료: {action.action_type.value} - {status}")
-
-        # 진행률 업데이트
-        sequence = self.engine.config.get_macro_sequence(sequence_id)
-        if sequence:
-            current_index = sequence.actions.index(action)
-            self.progress_bar.setValue(current_index + 1)
 
     def on_engine_error(self, sequence_id: str, error: Exception):
         """엔진 오류 시"""

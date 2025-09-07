@@ -39,6 +39,39 @@ class ScreenCapture:
         # 스크린샷 품질 설정
         self.screenshot_format = "PNG"
 
+        # 디스플레이 스케일 팩터 (HiDPI 대응)
+        self.scale_factor = self._get_display_scale_factor()
+
+        logger.info(f"ScreenCapture - Display scale factor: {self.scale_factor}")
+
+    def _get_display_scale_factor(self) -> float:
+        """디스플레이 스케일 팩터 계산"""
+        try:
+            # PyAutoGUI의 화면 크기와 실제 스크린샷 크기 비교
+            screen_size = pyautogui.size()
+            screenshot = pyautogui.screenshot()
+
+            # 스케일 팩터 계산
+            scale_x = screenshot.width / screen_size.width
+            scale_y = screenshot.height / screen_size.height
+
+            # 일반적으로 x, y 스케일이 같으므로 x 스케일 사용
+            scale_factor = scale_x
+
+            logger.debug(
+                f"ScreenCapture - Screen size: {screen_size}, Screenshot size: {screenshot.size}, Scale: {scale_factor}"
+            )
+
+            return scale_factor
+
+        except Exception as e:
+            logger.error(f"ScreenCapture - 스케일 팩터 계산 실패: {e}")
+            return 1.0  # 기본값
+
+    def get_scale_factor(self) -> float:
+        """스케일 팩터 반환"""
+        return self.scale_factor
+
     def get_monitors(self) -> List[dict]:
         """모니터 정보 가져오기"""
         if self._monitors is not None:
@@ -327,4 +360,3 @@ class ScreenCapture:
             "screenshot_format": self.screenshot_format,
             "failsafe_enabled": pyautogui.FAILSAFE,
         }
-
