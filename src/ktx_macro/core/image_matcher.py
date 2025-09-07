@@ -50,12 +50,55 @@ class ImageMatcher:
             if template_path in self.template_cache:
                 return self.template_cache[template_path]
 
-            if not Path(template_path).exists():
+            template_path_obj = Path(template_path)
+            if not template_path_obj.exists():
                 logger.error(f"템플릿 파일이 존재하지 않습니다: {template_path}")
                 return None
 
-            # 이미지 로드 (그레이스케일)
-            template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+            # Windows에서 한글 파일명 문제 해결을 위한 여러 방법 시도
+            template = None
+
+            # 방법 1: 일반적인 cv2.imread (대부분의 경우 작동)
+            try:
+                template = cv2.imread(str(template_path_obj), cv2.IMREAD_GRAYSCALE)
+            except Exception as e:
+                logger.debug(f"cv2.imread 직접 호출 실패: {e}")
+
+            # 방법 2: 파일을 바이너리로 읽어서 imdecode 사용 (한글 파일명 문제 해결)
+            if template is None:
+                try:
+                    with open(template_path_obj, 'rb') as f:
+                        img_data = np.frombuffer(f.read(), dtype=np.uint8)
+                        template = cv2.imdecode(img_data, cv2.IMREAD_GRAYSCALE)
+                    logger.debug("numpy + imdecode 방식으로 템플릿 로드 성공")
+                except Exception as e:
+                    logger.debug(f"numpy + imdecode 방식 실패: {e}")
+
+            # 방법 3: 임시 파일로 복사 후 로드 (최후의 수단)
+            if template is None:
+                try:
+                    import tempfile
+                    import shutil
+
+                    # 임시 파일 생성 (영문 이름)
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                        tmp_path = tmp_file.name
+
+                    # 원본 파일을 임시 파일로 복사
+                    shutil.copy2(template_path_obj, tmp_path)
+
+                    # 임시 파일 로드
+                    template = cv2.imread(tmp_path, cv2.IMREAD_GRAYSCALE)
+
+                    # 임시 파일 삭제
+                    os.unlink(tmp_path)
+
+                    if template is not None:
+                        logger.debug("임시 파일 복사 방식으로 템플릿 로드 성공")
+
+                except Exception as e:
+                    logger.debug(f"임시 파일 방식 실패: {e}")
+
             if template is None:
                 logger.error(f"템플릿 이미지 로드 실패: {template_path}")
                 return None
