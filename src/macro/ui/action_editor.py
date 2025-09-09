@@ -39,6 +39,7 @@ class ActionEditor(QDialog):
 
     action_saved = pyqtSignal(object)  # MacroAction
     capture_requested = pyqtSignal()  # 캡쳐 요청 시그널
+    mouse_capture_requested = pyqtSignal()  # 마우스 캡쳐 요청 시그널
 
     def __init__(self, engine: MacroEngine, parent=None):
         super().__init__(parent)
@@ -83,7 +84,7 @@ class ActionEditor(QDialog):
         # 액션 설명
         description_group = QGroupBox("액션 설명")
         description_layout = QFormLayout(description_group)
-        description_group.setMinimumHeight(80)  # 최소 높이 지정
+        description_group.setMinimumHeight(50)  # 최소 높이 지정
         description_group.setMaximumHeight(120)  # 최대 높이 지정
 
         self.description_input = QLineEdit()
@@ -96,23 +97,23 @@ class ActionEditor(QDialog):
         # 액션 타입 선택
         type_group = QGroupBox("액션 타입")
         type_layout = QFormLayout(type_group)
-        type_group.setMinimumHeight(80)  # 최소 높이 지정
+        type_group.setMinimumHeight(50)  # 최소 높이 지정
         type_group.setMaximumHeight(120)  # 최대 높이 지정
 
         self.action_type_combo = QComboBox()
         self.action_type_combo.addItems(
             [
-                "클릭",
-                "더블클릭",
-                "우클릭",
+                "마우스 클릭",
+                "이미지 클릭",
+                # "더블클릭",
+                # "우클릭",
                 "텍스트 입력",
                 "키 입력",
                 "스크롤",
                 "대기",
                 "텔레그램 전송",
-                "조건문 (IF)",
-                "조건문 (ELSE)",
-                "반복문 (LOOP)",
+                # "조건문 (IF)",
+                # "조건문 (ELSE)",
             ]
         )
         type_layout.addRow("타입:", self.action_type_combo)
@@ -123,9 +124,9 @@ class ActionEditor(QDialog):
         self.settings_layout = QVBoxLayout(self.settings_group)
         layout.addWidget(self.settings_group)
 
-        # 기본값으로 "클릭" 선택 (편집 모드가 아닌 경우에만)
+        # 기본값으로 "마우스 클릭" 선택 (편집 모드가 아닌 경우에만)
         if not self.is_edit_mode:
-            self.action_type_combo.setCurrentText("클릭")
+            self.action_type_combo.setCurrentText("마우스 클릭")
             self.update_settings_ui()
 
         # 버튼들
@@ -210,9 +211,7 @@ class ActionEditor(QDialog):
         # 템플릿 정보 복원 (액션 타입이 이미지 사용 타입인 경우)
         action_type = self.get_selected_action_type()
         if action_type in [
-            ActionType.CLICK,
-            ActionType.DOUBLE_CLICK,
-            ActionType.RIGHT_CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.IF,
         ]:
             if preserved_template_id:
@@ -223,9 +222,7 @@ class ActionEditor(QDialog):
                 )
 
             if preserved_click_position and action_type in [
-                ActionType.CLICK,
-                ActionType.DOUBLE_CLICK,
-                ActionType.RIGHT_CLICK,
+                ActionType.IMAGE_CLICK,
             ]:
                 self.selected_click_position = preserved_click_position
                 # 클릭 위치 복원
@@ -246,9 +243,7 @@ class ActionEditor(QDialog):
 
         # 오른쪽 패널 표시/숨김 결정 (이미지를 사용하는 액션들)
         is_image_action = action_type in [
-            ActionType.CLICK,
-            ActionType.DOUBLE_CLICK,
-            ActionType.RIGHT_CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.IF,  # IF 액션도 이미지 사용
         ]
 
@@ -284,10 +279,35 @@ class ActionEditor(QDialog):
 
         form_layout = QFormLayout()
 
+        if action_type == ActionType.CLICK:
+            # 좌표 표시
+            self.click_x_spin = QSpinBox()
+            self.click_x_spin.setRange(0, 9999)
+            self.click_x_spin.setReadOnly(True)
+            self.click_x_spin.setStyleSheet("background-color: #f8f9fa;")
+            form_layout.addRow("X 좌표:", self.click_x_spin)
+
+            self.click_y_spin = QSpinBox()
+            self.click_y_spin.setRange(0, 9999)
+            self.click_y_spin.setReadOnly(True)
+            self.click_y_spin.setStyleSheet("background-color: #f8f9fa;")
+            form_layout.addRow("Y 좌표:", self.click_y_spin)
+
+            # 마우스 위치 캡쳐 버튼
+            self.mouse_capture_btn = QPushButton("마우스 위치 캡쳐")
+            self.mouse_capture_btn.setObjectName("success_button")
+            self.mouse_capture_btn.clicked.connect(self.request_mouse_capture)
+            form_layout.addRow("위치 캡쳐:", self.mouse_capture_btn)
+
+            # 안내 텍스트
+            mouse_info_label = QLabel(
+                "※ 버튼을 클릭하면 전체화면 오버레이가 표시됩니다"
+            )
+            mouse_info_label.setStyleSheet("color: #6c757d; font-size: 12px;")
+            form_layout.addRow(mouse_info_label)
+
         if action_type in [
-            ActionType.CLICK,
-            ActionType.DOUBLE_CLICK,
-            ActionType.RIGHT_CLICK,
+            ActionType.IMAGE_CLICK,
         ]:
             # 안내 텍스트
             self.coordinate_info_label = QLabel(
@@ -413,21 +433,6 @@ class ActionEditor(QDialog):
             info_label.setStyleSheet("color: #6c757d; font-style: italic;")
             form_layout.addRow(info_label)
 
-        elif action_type == ActionType.LOOP:
-            # 반복 횟수 설정
-            self.loop_count_spin = QSpinBox()
-            self.loop_count_spin.setRange(0, 9999)
-            self.loop_count_spin.setValue(1)
-            self.loop_count_spin.setSpecialValueText("무한 반복")
-            form_layout.addRow("반복 횟수:", self.loop_count_spin)
-
-            # 반복 간격
-            self.loop_delay = QDoubleSpinBox()
-            self.loop_delay.setRange(0.0, 60.0)
-            self.loop_delay.setValue(1.0)
-            self.loop_delay.setSuffix(" 초")
-            form_layout.addRow("반복 간격:", self.loop_delay)
-
         # 공통 설정
         self.enabled_check = QCheckBox("활성화")
         self.enabled_check.setChecked(True)
@@ -442,6 +447,11 @@ class ActionEditor(QDialog):
         """화면 캡쳐 시작"""
         # Signal을 통해 캡쳐 요청
         self.capture_requested.emit()
+
+    def request_mouse_capture(self):
+        """마우스 위치 캡쳐 요청"""
+        # Signal을 통해 마우스 캡쳐 요청
+        self.mouse_capture_requested.emit()
 
     def on_condition_type_changed(self):
         """조건 타입 변경 시 처리"""
@@ -678,11 +688,6 @@ class ActionEditor(QDialog):
             # 시각적 피드백 (클릭 위치 표시)
             self.update_large_click_position_marker()
 
-            # 좌표 표시 업데이트
-            if hasattr(self, "click_x_spin") and hasattr(self, "click_y_spin"):
-                self.click_x_spin.setValue(image_x)
-                self.click_y_spin.setValue(image_y)
-
             # 클릭 위치 정보 업데이트
             if hasattr(self, "click_info_label"):
                 self.click_info_label.setText(f"클릭 위치: ({image_x}, {image_y})")
@@ -794,6 +799,12 @@ class ActionEditor(QDialog):
             if hasattr(self, "large_image_preview"):
                 self.large_image_preview.setText("이미지 로드 오류")
 
+    def on_mouse_capture_completed(self, point: QPoint):
+        """마우스 캡쳐 완료 시"""
+        self.click_x_spin.setValue(point.x())
+        self.click_y_spin.setValue(point.y())
+        self.selected_click_position = (point.x(), point.y())
+
     def on_capture_completed(self, template_id: str, template_name: str):
         """캡쳐 완료 시 호출되는 메소드"""
         try:
@@ -833,9 +844,8 @@ class ActionEditor(QDialog):
     def get_selected_action_type(self) -> Optional[ActionType]:
         """선택된 액션 타입 반환"""
         type_map = {
-            "클릭": ActionType.CLICK,
-            "더블클릭": ActionType.DOUBLE_CLICK,
-            "우클릭": ActionType.RIGHT_CLICK,
+            "마우스 클릭": ActionType.CLICK,
+            "이미지 클릭": ActionType.IMAGE_CLICK,
             "텍스트 입력": ActionType.TYPE_TEXT,
             "키 입력": ActionType.KEY_PRESS,
             "스크롤": ActionType.SCROLL,
@@ -843,7 +853,6 @@ class ActionEditor(QDialog):
             "텔레그램 전송": ActionType.SEND_TELEGRAM,
             "조건문 (IF)": ActionType.IF,
             "조건문 (ELSE)": ActionType.ELSE,
-            "반복문 (LOOP)": ActionType.LOOP,
         }
 
         text = self.action_type_combo.currentText()
@@ -853,7 +862,6 @@ class ActionEditor(QDialog):
         """선택된 실패 처리 옵션 반환"""
         failure_map = {
             "실행 중단": ImageSearchFailureAction.STOP_EXECUTION,
-            "화면 새로고침 (F5)": ImageSearchFailureAction.REFRESH_SCREEN,
             "매크로 처음부터 재실행": ImageSearchFailureAction.RESTART_SEQUENCE,
             "무시하고 다음 단계": ImageSearchFailureAction.SKIP_TO_NEXT,
         }
@@ -885,7 +893,6 @@ class ActionEditor(QDialog):
 
         failure_text_map = {
             ImageSearchFailureAction.STOP_EXECUTION: "실행 중단",
-            ImageSearchFailureAction.REFRESH_SCREEN: "화면 새로고침 (F5)",
             ImageSearchFailureAction.RESTART_SEQUENCE: "매크로 처음부터 재실행",
             ImageSearchFailureAction.SKIP_TO_NEXT: "무시하고 다음 단계",
         }
@@ -905,9 +912,8 @@ class ActionEditor(QDialog):
 
         # 액션 타입 설정
         type_map = {
-            ActionType.CLICK: "클릭",
-            ActionType.DOUBLE_CLICK: "더블클릭",
-            ActionType.RIGHT_CLICK: "우클릭",
+            ActionType.CLICK: "마우스 클릭",
+            ActionType.IMAGE_CLICK: "이미지 클릭",
             ActionType.TYPE_TEXT: "텍스트 입력",
             ActionType.KEY_PRESS: "키 입력",
             ActionType.SCROLL: "스크롤",
@@ -915,7 +921,6 @@ class ActionEditor(QDialog):
             ActionType.SEND_TELEGRAM: "텔레그램 전송",
             ActionType.IF: "조건문 (IF)",
             ActionType.ELSE: "조건문 (ELSE)",
-            ActionType.LOOP: "반복문 (LOOP)",
         }
 
         type_text = type_map.get(self.action.action_type, "")
@@ -932,16 +937,17 @@ class ActionEditor(QDialog):
             self.description_input.setText(self.action.description or "")
 
         # 액션별 데이터 로드
-        if self.action.action_type in [
-            ActionType.CLICK,
-            ActionType.DOUBLE_CLICK,
-            ActionType.RIGHT_CLICK,
-        ]:
+        if self.action.action_type == ActionType.CLICK:
             # 클릭 위치 표시
             if hasattr(self, "click_x_spin") and self.action.click_position:
                 self.click_x_spin.setValue(self.action.click_position[0])
                 self.click_y_spin.setValue(self.action.click_position[1])
+                # 내부 변수에도 저장
+                self.selected_click_position = self.action.click_position
 
+        elif self.action.action_type in [
+            ActionType.IMAGE_CLICK,
+        ]:
             # 이미지 템플릿 로드 (필수)
             if self.action.image_template_id:
                 self.current_template_id = self.action.image_template_id
@@ -1054,15 +1060,6 @@ class ActionEditor(QDialog):
                     if template:
                         self.condition_image_input.setText(template.name)
 
-        elif self.action.action_type == ActionType.LOOP:
-            # 반복 횟수 설정
-            if hasattr(self, "loop_count_spin"):
-                self.loop_count_spin.setValue(self.action.loop_count or 0)
-
-            # 반복 간격 설정 (wait_seconds 재사용)
-            if hasattr(self, "loop_delay"):
-                self.loop_delay.setValue(self.action.wait_seconds or 1.0)
-
         # 활성화 상태
         if hasattr(self, "enabled_check"):
             self.enabled_check.setChecked(self.action.enabled)
@@ -1090,10 +1087,19 @@ class ActionEditor(QDialog):
             action.description = self.description_input.text().strip()
 
         # 액션별 데이터 저장
-        if action_type in [
-            ActionType.CLICK,
-            ActionType.DOUBLE_CLICK,
-            ActionType.RIGHT_CLICK,
+        if action_type == ActionType.CLICK:
+            # 좌표는 필수
+            if (
+                not hasattr(self, "selected_click_position")
+                or not self.selected_click_position
+            ):
+                QMessageBox.warning(self, "경고", "마우스 위치를 먼저 캡쳐하세요.")
+                return
+
+            action.click_position = self.selected_click_position
+
+        elif action_type in [
+            ActionType.IMAGE_CLICK,
         ]:
             # 이미지 템플릿은 필수
             if not hasattr(self, "current_template_id") or not self.current_template_id:
@@ -1190,18 +1196,6 @@ class ActionEditor(QDialog):
         elif action_type == ActionType.ELSE:
             # ELSE는 별도 설정이 필요 없음
             pass
-
-        elif action_type == ActionType.LOOP:
-            # 반복 횟수 저장
-            if hasattr(self, "loop_count_spin"):
-                loop_count = self.loop_count_spin.value()
-                action.loop_count = (
-                    loop_count if loop_count > 0 else None
-                )  # 0이면 무한 루프
-
-            # 반복 간격 저장 (wait_seconds 재사용)
-            if hasattr(self, "loop_delay"):
-                action.wait_seconds = self.loop_delay.value()
 
         self.hide()
         # 액션 저장 신호 발송

@@ -226,9 +226,7 @@ class MainWindow(QMainWindow):
         # 액션 테이블
         self.action_table = QTableWidget()
         self.action_table.setColumnCount(4)
-        self.action_table.setHorizontalHeaderLabels(
-            ["순서", "타입", "설명", "활성화"]
-        )
+        self.action_table.setHorizontalHeaderLabels(["순서", "타입", "설명", "활성화"])
 
         # 테이블 편집 방지 및 행 선택 설정
         self.action_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -480,7 +478,7 @@ class MainWindow(QMainWindow):
     def get_action_description(self, action) -> str:
         """액션 설명 생성"""
         if action.action_type in [
-            ActionType.CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
         ]:
@@ -919,7 +917,7 @@ class MainWindow(QMainWindow):
             # 새 액션 생성 (클릭 액션으로 기본 설정)
             action = MacroAction(
                 id=str(uuid.uuid4()),
-                action_type=ActionType.CLICK,
+                action_type=ActionType.IMAGE_CLICK,
                 image_template_id=template_id,
             )
 
@@ -1333,7 +1331,7 @@ class MainWindow(QMainWindow):
 
             # 액션 타입 한글 매핑
             type_map = {
-                ActionType.CLICK: "클릭",
+                ActionType.IMAGE_CLICK: "클릭",
                 ActionType.DOUBLE_CLICK: "더블클릭",
                 ActionType.RIGHT_CLICK: "우클릭",
                 ActionType.TYPE_TEXT: "텍스트 입력",
@@ -1360,7 +1358,6 @@ class MainWindow(QMainWindow):
                 description = getattr(action, "description", "") or ""
                 description_item = QTableWidgetItem(description)
                 self.action_table.setItem(i, 2, description_item)
-
 
                 # 활성화 상태
                 enabled_text = "✓" if action.enabled else "✗"

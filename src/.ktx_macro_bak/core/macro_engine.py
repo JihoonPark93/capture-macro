@@ -375,7 +375,7 @@ class MacroEngine(QObject):
         try:
             logger.debug(f"액션 실행: {action.action_type}")
 
-            if action.action_type == ActionType.CLICK:
+            if action.action_type == ActionType.IMAGE_CLICK:
                 return self._execute_click_action(action)
 
             elif action.action_type == ActionType.DOUBLE_CLICK:
@@ -658,7 +658,7 @@ class MacroEngine(QObject):
             x, y = match_result.center_position
 
             # 액션 타입에 따른 클릭 실행
-            if action.action_type == ActionType.CLICK:
+            if action.action_type == ActionType.IMAGE_CLICK:
                 return self.input_controller.click(x, y)
             elif action.action_type == ActionType.DOUBLE_CLICK:
                 return self.input_controller.double_click(x, y)

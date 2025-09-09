@@ -16,6 +16,244 @@ from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QFont
 logger = logging.getLogger(__name__)
 
 
+class MousePositionOverlay(QWidget):
+    """마우스 위치 캡쳐를 위한 전체 화면 오버레이"""
+
+    position_selected = pyqtSignal(QPoint)  # 선택된 위치 신호
+    capture_cancelled = pyqtSignal()  # 캡쳐 취소 신호
+
+    def __init__(self, screenshot: QPixmap):
+        super().__init__()
+
+        self.screenshot = screenshot
+        self.cursor_pos = QPoint()
+
+        # 스케일 팩터 계산 (스크린샷 크기 vs 실제 화면 크기)
+        screen = QApplication.primaryScreen()
+        self.screen_geometry = screen.geometry()
+        self.screenshot_size = screenshot.size()
+
+        # 스케일 팩터 계산
+        self.scale_x = self.screenshot_size.width() / self.screen_geometry.width()
+        self.scale_y = self.screenshot_size.height() / self.screen_geometry.height()
+
+        print(
+            f"[MousePositionOverlay] Screen: {self.screen_geometry.width()}x{self.screen_geometry.height()}"
+        )
+        print(
+            f"[MousePositionOverlay] Screenshot: {self.screenshot_size.width()}x{self.screenshot_size.height()}"
+        )
+        print(
+            f"[MousePositionOverlay] Scale factors: x={self.scale_x:.3f}, y={self.scale_y:.3f}"
+        )
+
+        # 부모 없는 독립 윈도우로 설정
+        self.setParent(None)
+
+        # 전체 화면 크기로 설정
+        self.setGeometry(self.screen_geometry)
+
+        # 윈도우 플래그 설정
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Window
+            | Qt.WindowType.X11BypassWindowManagerHint
+        )
+
+        # 투명도 및 배경 설정
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+        # 포커스 정책 설정
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # 커서 설정
+        self.setCursor(Qt.CursorShape.CrossCursor)
+
+        # 마우스 추적 활성화
+        self.setMouseTracking(True)
+
+        # 위젯이 마우스 이벤트를 받을 수 있도록 설정
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
+
+        # 윈도우 표시
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+        # 이벤트 처리 실행
+        QApplication.processEvents()
+
+        # 포커스 설정
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        # 입력 캡처 설정을 지연 실행
+        QTimer.singleShot(100, self._force_focus)
+        QTimer.singleShot(150, self._setup_input_capture)
+
+    def _force_focus(self):
+        """강제 포커스 설정"""
+        self.raise_()
+        self.activateWindow()
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _setup_input_capture(self):
+        """입력 장치 캡처 설정"""
+        try:
+            self.grabMouse()
+            self.grabKeyboard()
+        except Exception as e:
+            logger.warning(f"입력 장치 캡처 실패: {e}")
+            self._setup_event_filter()
+
+    def _setup_event_filter(self):
+        """이벤트 필터 설정 (그랩 실패 시 대안)"""
+        try:
+            QApplication.instance().installEventFilter(self)
+        except Exception as e:
+            logger.warning(f"이벤트 필터 설정 실패: {e}")
+
+    def eventFilter(self, obj, event):
+        """전역 이벤트 필터"""
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtGui import QMouseEvent, QKeyEvent
+
+        if isinstance(event, QMouseEvent):
+            if event.type() == QEvent.Type.MouseButtonPress:
+                self.mousePressEvent(event)
+                return True
+            elif event.type() == QEvent.Type.MouseMove:
+                self.mouseMoveEvent(event)
+                return True
+        elif isinstance(event, QKeyEvent):
+            if event.type() == QEvent.Type.KeyPress:
+                self.keyPressEvent(event)
+                return True
+
+        return super().eventFilter(obj, event)
+
+    def closeEvent(self, event):
+        """윈도우 닫기 시 리소스 정리"""
+        try:
+            self.releaseMouse()
+            self.releaseKeyboard()
+            QApplication.instance().removeEventFilter(self)
+        except Exception as e:
+            logger.warning(f"리소스 정리 실패: {e}")
+        event.accept()
+
+    def keyPressEvent(self, event):
+        """키보드 이벤트 처리"""
+        if event.key() == Qt.Key.Key_Escape:
+            try:
+                self.releaseMouse()
+                self.releaseKeyboard()
+                QApplication.instance().removeEventFilter(self)
+            except Exception as e:
+                logger.warning(f"ESC 시 입력 장치 해제 실패: {e}")
+
+            self.capture_cancelled.emit()
+        event.accept()
+
+    def paintEvent(self, event):
+        """그리기 이벤트"""
+        painter = QPainter(self)
+        try:
+            # 전체 화면에 원본 스크린샷 표시
+            painter.drawPixmap(self.rect(), self.screenshot, self.screenshot.rect())
+
+            # 반투명 오버레이
+            overlay_color = QColor(0, 0, 0, 64)
+            painter.fillRect(self.rect(), overlay_color)
+
+            # 십자선 그리기
+            self.draw_crosshair(painter)
+
+            # 도움말 텍스트 표시
+            self.draw_help_text(painter)
+
+        finally:
+            painter.end()
+
+    def draw_crosshair(self, painter: QPainter):
+        """십자선 그리기"""
+        if self.cursor_pos.isNull():
+            return
+
+        # 십자선 색상 설정
+        pen = QPen(QColor(255, 0, 0), 2, Qt.PenStyle.SolidLine)
+        painter.setPen(pen)
+
+        # 세로선
+        painter.drawLine(self.cursor_pos.x(), 0, self.cursor_pos.x(), self.height())
+        # 가로선
+        painter.drawLine(0, self.cursor_pos.y(), self.width(), self.cursor_pos.y())
+
+        # 중심점 원
+        painter.setBrush(QColor(255, 0, 0))
+        painter.drawEllipse(self.cursor_pos.x() - 3, self.cursor_pos.y() - 3, 6, 6)
+
+    def draw_help_text(self, painter: QPainter):
+        """도움말 텍스트 표시"""
+        font = QFont()
+        font.setPointSize(14)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255))
+
+        help_text = "클릭할 위치를 선택하세요 (ESC: 취소)"
+
+        # 좌표 정보 텍스트 (실제 스크린샷 좌표 표시)
+        if not self.cursor_pos.isNull():
+            # 위젯 좌표와 실제 스크린샷 좌표 모두 표시
+            screenshot_pos = self._convert_to_screenshot_coordinates(self.cursor_pos)
+            coord_text = f"화면: ({self.cursor_pos.x()}, {self.cursor_pos.y()}) → 실제: ({screenshot_pos.x()}, {screenshot_pos.y()})"
+            help_text += f"\n{coord_text}"
+
+        # 텍스트 배경
+        text_rect = painter.fontMetrics().boundingRect(help_text)
+        bg_rect = QRect(10, 10, text_rect.width() + 20, text_rect.height() + 20)
+        painter.fillRect(bg_rect, QColor(0, 0, 0, 180))
+
+        # 텍스트 그리기
+        painter.drawText(20, 30, help_text)
+
+    def _convert_to_screenshot_coordinates(self, widget_pos: QPoint) -> QPoint:
+        """위젯 좌표를 스크린샷 좌표로 변환"""
+        # 위젯 좌표 (화면 표시 좌표)를 실제 스크린샷 좌표로 변환
+        screenshot_x = int(widget_pos.x() * self.scale_x)
+        screenshot_y = int(widget_pos.y() * self.scale_y)
+
+        print(
+            f"[MousePositionOverlay] 좌표 변환: 위젯({widget_pos.x()}, {widget_pos.y()}) -> 스크린샷({screenshot_x}, {screenshot_y})"
+        )
+
+        return QPoint(screenshot_x, screenshot_y)
+
+    def mouseMoveEvent(self, event):
+        """마우스 이동 이벤트"""
+        self.cursor_pos = event.pos()
+        self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        """마우스 클릭 이벤트"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            try:
+                self.releaseMouse()
+                self.releaseKeyboard()
+                QApplication.instance().removeEventFilter(self)
+            except Exception as e:
+                logger.warning(f"입력 장치 해제 실패: {e}")
+
+            # 위젯 좌표를 실제 스크린샷 좌표로 변환하여 신호 발송
+            screenshot_pos = self._convert_to_screenshot_coordinates(event.pos())
+            self.position_selected.emit(screenshot_pos)
+        event.accept()
+
+
 class ScreenOverlay(QWidget):
     """전체 화면을 덮는 오버레이"""
 
@@ -32,11 +270,6 @@ class ScreenOverlay(QWidget):
 
         # 미리 캡쳐된 스크린샷 사용
         self.screenshot = screenshot
-
-        # 디버그: 스크린샷 정보 출력
-        print(f"[DEBUG] Screenshot size: {screenshot.size()}")
-        print(f"[DEBUG] Screenshot device pixel ratio: {screenshot.devicePixelRatio()}")
-        print(f"[DEBUG] Screen geometry: {QApplication.primaryScreen().geometry()}")
 
         # 부모 없는 독립 윈도우로 설정
         self.setParent(None)
@@ -207,6 +440,8 @@ class ScreenOverlay(QWidget):
             if not self.selection_rect.isEmpty():
                 # 전체 화면을 어둡게 오버레이
                 overlay_color = QColor(0, 0, 0, 128)  # 반투명 검은색
+                padding = 3
+                self.selection_rect.adjust(-padding, -padding, padding, padding)
 
                 # 선택 영역을 제외한 나머지 영역에만 오버레이 적용
                 # 선택 영역 위쪽
@@ -245,6 +480,7 @@ class ScreenOverlay(QWidget):
                     painter.fillRect(right_rect, overlay_color)
 
                 # 선택 영역 테두리 그리기
+                # FIXME: 빨간 테두리가 캡쳐되는 문제 수정 테두리 그리기 전 패딩 추가
                 pen = QPen(QColor(255, 0, 0), 2, Qt.PenStyle.SolidLine)
                 painter.setPen(pen)
                 painter.drawRect(self.selection_rect)

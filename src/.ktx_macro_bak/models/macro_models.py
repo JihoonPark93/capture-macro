@@ -20,7 +20,6 @@ class ActionType(Enum):
     CLICK = "click"
     DOUBLE_CLICK = "double_click"
     RIGHT_CLICK = "right_click"
-    DRAG = "drag"
     TYPE_TEXT = "type_text"
     KEY_PRESS = "key_press"
     SCROLL = "scroll"

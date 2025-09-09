@@ -219,7 +219,7 @@ class ConfigValidator:
         from ..models.macro_models import ActionType
 
         if action.action_type in [
-            ActionType.CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
         ]:
@@ -343,4 +343,3 @@ class ConfigValidator:
                 "auto_save_interval": config.auto_save_interval,
             },
         }
-

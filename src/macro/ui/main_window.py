@@ -54,6 +54,7 @@ class MainWindow(QMainWindow):
         # 액션 에디터 목록 (캡쳐 이벤트 전달용)
         self.action_editor: ActionEditor = ActionEditor(engine=self.engine)
 
+        self.action_editor.mouse_capture_requested.connect(self.start_mouse_capture)
         self.action_editor.capture_requested.connect(self.start_capture)
         self.action_editor.action_saved.connect(self.on_action_added)
         self.action_editor.hide()
@@ -414,7 +415,7 @@ class MainWindow(QMainWindow):
             type_display = self.get_action_display_name(action, indent_level)
             type_item = QTableWidgetItem(type_display)
             # 구조적 요소들에 배경색 적용
-            if action.action_type in [ActionType.IF, ActionType.ELSE, ActionType.LOOP]:
+            if action.action_type in [ActionType.IF, ActionType.ELSE]:
                 type_item.setBackground(Qt.GlobalColor.lightGray)
             self.action_table.setItem(i, 0, type_item)
 
@@ -434,9 +435,7 @@ class MainWindow(QMainWindow):
     def get_action_description(self, action) -> str:
         """액션 설명 생성"""
         if action.action_type in [
-            ActionType.CLICK,
-            ActionType.DOUBLE_CLICK,
-            ActionType.RIGHT_CLICK,
+            ActionType.IMAGE_CLICK,
         ]:
             if action.click_position:
                 return f"위치 ({action.click_position[0]}, {action.click_position[1]})"
@@ -472,12 +471,6 @@ class MainWindow(QMainWindow):
         elif action.action_type == ActionType.ELSE:
             return "ELSE"
 
-        elif action.action_type == ActionType.LOOP:
-            if action.loop_count:
-                return f"LOOP ({action.loop_count}회)"
-            else:
-                return "LOOP (무한)"
-
         else:
             return action.action_type.value
 
@@ -493,9 +486,6 @@ class MainWindow(QMainWindow):
             elif action.action_type == ActionType.ELSE:
                 # ELSE는 같은 레벨의 IF와 동일한 인덴트
                 indents.append(current_level - 1 if current_level > 0 else 0)
-            elif action.action_type == ActionType.LOOP:
-                indents.append(current_level)
-                current_level += 1
             else:
                 indents.append(current_level)
 
@@ -511,8 +501,6 @@ class MainWindow(QMainWindow):
             return f"{indent}🔹 {base_description}"
         elif action.action_type == ActionType.ELSE:
             return f"{indent}🔸 {base_description}"
-        elif action.action_type == ActionType.LOOP:
-            return f"{indent}🔄 {base_description}"
         else:
             return f"{indent}{base_description}"
 
@@ -543,14 +531,64 @@ class MainWindow(QMainWindow):
         self.engine.save_config()
         self.add_log(f"액션 {'활성화' if enabled else '비활성화'}: {action_id}")
 
+    def start_mouse_capture(self):
+        """마우스 캡쳐 시작"""
+        print("마우스 캡쳐 시작")
+        try:
+            self.is_capturing = True
+
+            # 모든 QT 윈도우 숨기기 (액션 에디터 포함)
+            self._hide_all_qt_windows()
+
+            # 잠시 대기 후 오버레이 생성 (화면이 완전히 숨겨지도록)
+            from PyQt6.QtCore import QTimer
+
+            QTimer.singleShot(200, self._create_mouse_capture_overlay)
+
+        except Exception as e:
+            print(f"마우스 캡쳐 시작 실패: {e}")
+            self.add_log(f"마우스 캡쳐 시작 실패: {e}")
+            self.is_capturing = False
+            # 오류 발생 시 윈도우 복원
+            self._restore_all_qt_windows()
+
+    def _create_mouse_capture_overlay(self):
+        """캡쳐 오버레이 생성 (지연 실행)"""
+        try:
+            from .capture_dialog import MousePositionOverlay
+            from PyQt6.QtWidgets import QApplication
+
+            print("마우스 캡쳐 오버레이 생성 시작")
+
+            # 현재 화면 스크린샷 캡쳐 (윈도우들이 숨겨진 상태에서)
+            screen = QApplication.primaryScreen()
+            screenshot = screen.grabWindow(0)
+
+            # HiDPI 디스플레이 지원을 위한 device pixel ratio 설정
+            device_pixel_ratio = screen.devicePixelRatio()
+            screenshot.setDevicePixelRatio(device_pixel_ratio)
+
+            # 오버레이 생성
+            self.capture_overlay = MousePositionOverlay(screenshot)
+            self.capture_overlay.position_selected.connect(
+                self.on_mouse_selection_completed
+            )
+            self.capture_overlay.capture_cancelled.connect(self.on_capture_cancelled)
+
+            # 이벤트 처리 강제 실행
+            QApplication.processEvents()
+
+        except Exception as e:
+            print(f"오버레이 생성 실패: {e}")
+            # 오류 발생 시 윈도우 복원
+            self.is_capturing = False
+            self._restore_all_qt_windows()
+
+
     # 액션 메소드들
     def start_capture(self):
         """화면 캡쳐 시작 (바로 오버레이 표시)"""
         print("화면 캡쳐 시작")
-
-        # if self.is_capturing:
-        #     print("이미 캡쳐 중입니다")
-        #     return
 
         try:
             self.is_capturing = True
@@ -655,6 +693,24 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"윈도우 복원 실패: {e}")
 
+    def on_mouse_selection_completed(self, point):
+        """오버레이에서 영역 선택 완료"""
+        try:
+            print(f"마우스 영역 선택 완료: {point}")
+            # 오버레이 닫기
+            if hasattr(self, "capture_overlay") and self.capture_overlay:
+                self.capture_overlay.close()
+                self.capture_overlay = None
+                
+            self.action_editor.on_mouse_capture_completed(point)
+
+            # 모든 윈도우 복원
+            self._restore_all_qt_windows()
+        except Exception as e:
+            print(f"영역 선택 처리 실패: {e}")
+            self.is_capturing = False
+            self._restore_all_qt_windows()
+
     def on_selection_completed(self, rect):
         """오버레이에서 영역 선택 완료"""
         try:
@@ -675,6 +731,8 @@ class MainWindow(QMainWindow):
 
             # 자동으로 템플릿 저장 (UUID 기반 이름)
             self._auto_save_template(rect)
+            # 모든 윈도우 복원
+            self._restore_all_qt_windows()
 
         except Exception as e:
             print(f"영역 선택 처리 실패: {e}")
@@ -758,8 +816,6 @@ class MainWindow(QMainWindow):
             self.action_editor.on_capture_completed(template_id, template_name)
             print(f"이미지 템플릿 자동 생성됨: {template_name} ({file_path})")
 
-            # 모든 윈도우 복원
-            self._restore_all_qt_windows()
 
         except Exception as e:
             print(f"자동 템플릿 저장 실패: {e}")
@@ -1001,9 +1057,8 @@ class MainWindow(QMainWindow):
 
             # 액션 타입 한글 매핑
             type_map = {
-                ActionType.CLICK: "클릭",
-                ActionType.DOUBLE_CLICK: "더블클릭",
-                ActionType.RIGHT_CLICK: "우클릭",
+                ActionType.CLICK: "고정 위치 클릭",
+                ActionType.IMAGE_CLICK: "이미지 탐색 클릭",
                 ActionType.TYPE_TEXT: "텍스트 입력",
                 ActionType.KEY_PRESS: "키 입력",
                 ActionType.WAIT: "대기",

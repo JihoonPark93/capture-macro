@@ -71,6 +71,47 @@ class InputController:
             return adjusted_x, adjusted_y
         return x, y
 
+    def get_scale_factor(self) -> float:
+        """현재 디스플레이 스케일 팩터 반환"""
+        return self.scale_factor
+
+    def adjust_coordinates_for_capture(self, x: int, y: int) -> Tuple[int, int]:
+        """캡쳐된 좌표를 클릭 실행에 맞게 보정 (외부 접근용)"""
+        return self._adjust_coordinates(x, y)
+
+    def click_with_adjusted_coordinates(
+        self,
+        x: int,
+        y: int,
+        button: str = "left",
+        clicks: int = 1,
+        interval: float = 0.0,
+    ) -> bool:
+        """이미 보정된 좌표로 직접 클릭 (추가 보정 없음)"""
+        try:
+            # 지정된 위치로 이동 (보정 없이)
+            pyautogui.moveTo(x, y, duration=self.mouse_move_duration)
+            time.sleep(self.click_delay)
+
+            print(
+                f"마우스 클릭 (보정된 좌표): 버튼={button}, 횟수={clicks}, 위치=({x}, {y})"
+            )
+            pyautogui.click(
+                x=x,
+                y=y,
+                clicks=clicks,
+                interval=interval,
+                button=button,
+            )
+
+            time.sleep(self.default_delay)
+            return True
+
+        except Exception as e:
+            print(f"마우스 클릭 실패 (보정된 좌표): {e}")
+            logger.error(f"마우스 클릭 실패: {e}")
+            return False
+
     def move_mouse(
         self, x: int, y: int, duration: Optional[float] = None, smooth: bool = True
     ) -> bool:
@@ -260,7 +301,7 @@ class InputController:
             return True
 
         except Exception as e:
-            print(f"스크롤 실패: {direction}, {amount}, ({x}, {y}), {e}")
+            print(f"스크롤 실패: {direction}, {amount}, {e}")
             return False
 
     def type_text(self, text: str, interval: float = 0.02) -> bool:

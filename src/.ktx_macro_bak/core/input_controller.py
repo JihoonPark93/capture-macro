@@ -370,7 +370,7 @@ class InputController:
     def execute_action(self, action_type: ActionType, **kwargs) -> bool:
         """액션 타입에 따른 실행"""
         try:
-            if action_type == ActionType.CLICK:
+            if action_type == ActionType.IMAGE_CLICK:
                 return self.click(
                     x=kwargs.get("x"),
                     y=kwargs.get("y"),
@@ -382,15 +382,6 @@ class InputController:
 
             elif action_type == ActionType.RIGHT_CLICK:
                 return self.right_click(x=kwargs.get("x"), y=kwargs.get("y"))
-
-            elif action_type == ActionType.DRAG:
-                return self.drag(
-                    from_x=kwargs.get("from_x"),
-                    from_y=kwargs.get("from_y"),
-                    to_x=kwargs.get("to_x"),
-                    to_y=kwargs.get("to_y"),
-                    duration=kwargs.get("duration", 0.5),
-                )
 
             elif action_type == ActionType.TYPE_TEXT:
                 return self.type_text(

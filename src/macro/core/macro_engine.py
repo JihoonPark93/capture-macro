@@ -21,7 +21,7 @@ from ..models.macro_models import (
     ImageSearchFailureAction,
     ConditionType,
 )
-from .image_matcher import ImageMatcher, MatchResult
+from .image_matcher import ImageMatcher
 from .screen_capture import ScreenCapture
 from .input_controller import InputController
 from .telegram_bot import SyncTelegramBot
@@ -343,14 +343,8 @@ class MacroEngine(QObject):
             if action.action_type == ActionType.CLICK:
                 return self._execute_click_action(action)
 
-            elif action.action_type == ActionType.DOUBLE_CLICK:
-                return self._execute_double_click_action(action)
-
-            elif action.action_type == ActionType.RIGHT_CLICK:
-                return self._execute_right_click_action(action)
-
-            elif action.action_type == ActionType.DRAG:
-                return self._execute_drag_action(action)
+            elif action.action_type == ActionType.IMAGE_CLICK:
+                return self._execute_image_click_action(action)
 
             elif action.action_type == ActionType.TYPE_TEXT:
                 return self._execute_type_text_action(action)
@@ -373,9 +367,6 @@ class MacroEngine(QObject):
             elif action.action_type == ActionType.ELSE:
                 return self._execute_else_action(action)
 
-            elif action.action_type == ActionType.LOOP:
-                return self._execute_loop_action(action)
-
             else:
                 logger.error(f"지원하지 않는 액션 타입: {action.action_type}")
                 return False
@@ -386,27 +377,21 @@ class MacroEngine(QObject):
 
     def _execute_click_action(self, action: MacroAction) -> bool:
         """클릭 액션 실행"""
+        if action.click_position:
+            # 이미지를 찾아서 액션에서 지정한 위치 클릭
+            return self.input_controller.click(
+                action.click_position[0], action.click_position[1]
+            )
+
+        else:
+            logger.error("클릭 위치가 설정되지 않았습니다")
+            return False
+
+    def _execute_image_click_action(self, action: MacroAction) -> bool:
+        """클릭 액션 실행"""
         if action.image_template_id and action.click_position:
             # 이미지를 찾아서 액션에서 지정한 위치 클릭
             return self._find_and_click_image(action)
-        else:
-            logger.error("이미지 템플릿과 클릭 위치가 모두 필요합니다")
-            return False
-
-    def _execute_double_click_action(self, action: MacroAction) -> bool:
-        """더블클릭 액션 실행"""
-        if action.image_template_id and action.click_position:
-            # 이미지를 찾아서 액션에서 지정한 위치 더블클릭
-            return self._find_and_click_image(action, double_click=True)
-        else:
-            logger.error("이미지 템플릿과 클릭 위치가 모두 필요합니다")
-            return False
-
-    def _execute_right_click_action(self, action: MacroAction) -> bool:
-        """우클릭 액션 실행"""
-        if action.image_template_id and action.click_position:
-            # 이미지를 찾아서 액션에서 지정한 위치 우클릭
-            return self._find_and_click_image(action, right_click=True)
         else:
             logger.error("이미지 템플릿과 클릭 위치가 모두 필요합니다")
             return False
@@ -488,17 +473,6 @@ class MacroEngine(QObject):
         else:
             return self.input_controller.click(actual_click_x, actual_click_y)
 
-    def _execute_drag_action(self, action: MacroAction) -> bool:
-        """드래그 액션 실행"""
-        if not (action.click_position and action.drag_to_position):
-            logger.error("드래그 시작점과 끝점이 지정되지 않았습니다")
-            return False
-
-        from_x, from_y = action.click_position
-        to_x, to_y = action.drag_to_position
-
-        return self.input_controller.drag(from_x, from_y, to_x, to_y)
-
     def _execute_type_text_action(self, action: MacroAction) -> bool:
         """텍스트 입력 액션 실행"""
         if not action.text_input:
@@ -569,16 +543,7 @@ class MacroEngine(QObject):
 
         logger.info(f"이미지 탐색 실패 처리: {failure_action.value}")
 
-        if failure_action == ImageSearchFailureAction.REFRESH_SCREEN:
-            # 화면 새로고침 (F5 키 전송)
-            logger.info("화면 새로고침 실행 (F5)")
-            self.input_controller.key_press(["F5"])
-            time.sleep(2)  # 새로고침 대기
-
-            # 새로고침 후 다시 이미지 탐색 시도
-            return self._retry_image_search(action)
-
-        elif failure_action == ImageSearchFailureAction.RESTART_SEQUENCE:
+        if failure_action == ImageSearchFailureAction.RESTART_SEQUENCE:
             # 매크로 처음부터 재실행
             logger.info("매크로 처음부터 재실행 요청")
             self.restart_requested = True
@@ -624,12 +589,8 @@ class MacroEngine(QObject):
             x, y = match_result.center_position
 
             # 액션 타입에 따른 클릭 실행
-            if action.action_type == ActionType.CLICK:
+            if action.action_type == ActionType.IMAGE_CLICK:
                 return self.input_controller.click(x, y)
-            elif action.action_type == ActionType.DOUBLE_CLICK:
-                return self.input_controller.double_click(x, y)
-            elif action.action_type == ActionType.RIGHT_CLICK:
-                return self.input_controller.right_click(x, y)
         else:
             logger.warning(f"재시도도 실패: {template.name}")
             return False
@@ -685,24 +646,6 @@ class MacroEngine(QObject):
 
         except Exception as e:
             logger.error(f"ELSE 액션 실행 실패: {e}")
-            return False
-
-    def _execute_loop_action(self, action: MacroAction) -> bool:
-        """LOOP 액션 실행"""
-        try:
-            loop_count = action.loop_count or 0  # 0이면 무한 루프
-            loop_delay = action.wait_seconds or 1.0
-
-            logger.info(
-                f"LOOP 시작: {loop_count}회 (무한: {loop_count == 0}), 간격: {loop_delay}초"
-            )
-
-            # LOOP 액션은 구조적 요소이므로 실제 반복은 상위 실행 로직에서 처리
-            # 여기서는 LOOP 설정 정보만 로깅
-            return True
-
-        except Exception as e:
-            logger.error(f"LOOP 액션 실행 실패: {e}")
             return False
 
     def _check_condition(self, action: MacroAction) -> bool:

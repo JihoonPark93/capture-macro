@@ -18,9 +18,7 @@ class ActionType(Enum):
     """매크로 액션 타입"""
 
     CLICK = "click"
-    DOUBLE_CLICK = "double_click"
-    RIGHT_CLICK = "right_click"
-    DRAG = "drag"
+    IMAGE_CLICK = "image_click"
     TYPE_TEXT = "type_text"
     KEY_PRESS = "key_press"
     SCROLL = "scroll"
@@ -35,7 +33,6 @@ class ActionType(Enum):
 class ImageSearchFailureAction(Enum):
     """이미지 탐색 실패 시 처리 옵션"""
 
-    REFRESH_SCREEN = "refresh_screen"  # 화면 새로고침 (F5)
     RESTART_SEQUENCE = "restart_sequence"  # 매크로 처음부터 재실행
     SKIP_TO_NEXT = "skip_to_next"  # 무시하고 다음 단계
     STOP_EXECUTION = "stop_execution"  # 실행 중단

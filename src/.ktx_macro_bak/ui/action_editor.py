@@ -203,7 +203,7 @@ class ActionEditor(QDialog):
         # 템플릿 정보 복원 (액션 타입이 이미지 사용 타입인 경우)
         action_type = self.get_selected_action_type()
         if action_type in [
-            ActionType.CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
             ActionType.IF,
@@ -216,7 +216,7 @@ class ActionEditor(QDialog):
                 )
 
             if preserved_click_position and action_type in [
-                ActionType.CLICK,
+                ActionType.IMAGE_CLICK,
                 ActionType.DOUBLE_CLICK,
                 ActionType.RIGHT_CLICK,
             ]:
@@ -239,7 +239,7 @@ class ActionEditor(QDialog):
 
         # 오른쪽 패널 표시/숨김 결정 (이미지를 사용하는 액션들)
         is_image_action = action_type in [
-            ActionType.CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
             ActionType.IF,  # IF 액션도 이미지 사용
@@ -278,7 +278,7 @@ class ActionEditor(QDialog):
         form_layout = QFormLayout()
 
         if action_type in [
-            ActionType.CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
         ]:
@@ -685,7 +685,7 @@ class ActionEditor(QDialog):
     def get_selected_action_type(self) -> Optional[ActionType]:
         """선택된 액션 타입 반환"""
         type_map = {
-            "클릭": ActionType.CLICK,
+            "클릭": ActionType.IMAGE_CLICK,
             "더블클릭": ActionType.DOUBLE_CLICK,
             "우클릭": ActionType.RIGHT_CLICK,
             "텍스트 입력": ActionType.TYPE_TEXT,
@@ -753,7 +753,7 @@ class ActionEditor(QDialog):
 
         # 액션 타입 설정
         type_map = {
-            ActionType.CLICK: "클릭",
+            ActionType.IMAGE_CLICK: "클릭",
             ActionType.DOUBLE_CLICK: "더블클릭",
             ActionType.RIGHT_CLICK: "우클릭",
             ActionType.TYPE_TEXT: "텍스트 입력",
@@ -780,7 +780,7 @@ class ActionEditor(QDialog):
 
         # 액션별 데이터 로드
         if self.action.action_type in [
-            ActionType.CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
         ]:
@@ -896,7 +896,7 @@ class ActionEditor(QDialog):
 
         # 액션별 데이터 저장
         if action_type in [
-            ActionType.CLICK,
+            ActionType.IMAGE_CLICK,
             ActionType.DOUBLE_CLICK,
             ActionType.RIGHT_CLICK,
         ]:
@@ -1018,7 +1018,7 @@ class ActionEditor(QDialog):
             current_action_type = self.get_selected_action_type()
 
             if current_action_type in [
-                ActionType.CLICK,
+                ActionType.IMAGE_CLICK,
                 ActionType.DOUBLE_CLICK,
                 ActionType.RIGHT_CLICK,
             ]:
@@ -1169,7 +1169,7 @@ class ActionEditor(QDialog):
             print(f"구체적 설정 복원: {current_action_type}")
 
             if current_action_type in [
-                ActionType.CLICK,
+                ActionType.IMAGE_CLICK,
                 ActionType.DOUBLE_CLICK,
                 ActionType.RIGHT_CLICK,
             ]:
