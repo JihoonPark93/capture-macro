@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QApplication, QSplashScreen
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QFont, QPixmap
 
-from .ui.main_window import MainWindow
+from macro.ui.main_window import MainWindow
 
 
 def show_splash_screen(app: QApplication) -> Optional[QSplashScreen]:

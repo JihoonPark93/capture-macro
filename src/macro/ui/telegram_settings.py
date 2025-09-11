@@ -17,9 +17,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QThread
 
-from ..core.macro_engine import MacroEngine
-from ..core.telegram_bot import SyncTelegramBot
-from ..models.macro_models import TelegramConfig
+from macro.core.macro_engine import MacroEngine
+from macro.core.telegram_bot import SyncTelegramBot
+from macro.models.macro_models import TelegramConfig
 
 
 class TelegramTestThread(QThread):

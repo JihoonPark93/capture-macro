@@ -72,7 +72,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
 # 애플리케이션 실행
-uv run python -m ktx_macro.main
+uv run python -m macro.main
 ```
 
 ### 첫 실행 가이드
@@ -143,7 +143,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --dev
 
 # 개발 서버 실행
-uv run python -m ktx_macro.main
+uv run python -m macro.main
 ```
 
 ### 빌드
@@ -189,7 +189,7 @@ uv run pytest tests/ -v --cov=src/
 
 ```
 ktx-macro-v2/
-├── src/ktx_macro/           # 메인 소스 코드
+├── src/macro/           # 메인 소스 코드
 │   ├── core/               # 핵심 엔진
 │   │   ├── image_matcher.py    # 이미지 매칭
 │   │   ├── screen_capture.py   # 화면 캡쳐
@@ -219,9 +219,9 @@ ktx-macro-v2/
 
 ### 설정 파일 위치
 
-- **Windows**: `%APPDATA%/ktx_macro/config.json`
-- **macOS**: `~/Library/Application Support/ktx_macro/config.json`
-- **Linux**: `~/.config/ktx_macro/config.json`
+- **Windows**: `%APPDATA%/macro/config.json`
+- **macOS**: `~/Library/Application Support/macro/config.json`
+- **Linux**: `~/.config/macro/config.json`
 
 ### 주요 설정 항목
 
@@ -265,7 +265,7 @@ ktx-macro-v2/
 
 로그 파일 위치:
 
-- **애플리케이션 실행 로그**: `logs/ktx_macro.log`
+- **애플리케이션 실행 로그**: `logs/macro.log`
 - **오류 로그**: `logs/ktx_macro_error.log`
 - **디버그 로그**: `logs/ktx_macro_debug.log`
 

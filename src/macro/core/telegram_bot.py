@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 import aiohttp
 from datetime import datetime
 
-from ..models.macro_models import TelegramConfig
+from macro.models.macro_models import TelegramConfig
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

@@ -37,7 +37,7 @@ class CrossPlatformBuilder:
         logger.info("빌드 의존성 확인 중...")
 
         required_packages = [
-            "pyinstaller",
+            # "pyinstaller",
             "PyQt6",
             "opencv-python",
             "pyautogui",

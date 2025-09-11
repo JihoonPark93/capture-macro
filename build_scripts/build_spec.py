@@ -20,7 +20,7 @@ def create_spec_file(
     src_path = project_root / "src"
     
     # 메인 스크립트 경로
-    main_script = src_path / "ktx_macro" / "main.py"
+    main_script = src_path / "macro" / "main.py"
     
     # 아이콘 파일 경로 (있는 경우)
     icon_path = project_root / "assets" / "icon.ico"
@@ -28,11 +28,27 @@ def create_spec_file(
     
     # 데이터 파일들
     datas = [
-        # 설정 파일 템플릿 등
+        ('config', 'config'),
+        ('assets', 'assets'),
     ]
     
     # 히든 임포트 (PyInstaller가 자동으로 찾지 못하는 모듈들)
     hidden_imports = [
+        'macro',
+        'macro.core',
+        'macro.core.image_matcher',
+        'macro.core.macro_engine', 
+        'macro.core.screen_capture',
+        'macro.core.input_controller',
+        'macro.core.telegram_bot',
+        'macro.models',
+        'macro.models.macro_models',
+        'macro.ui',
+        'macro.ui.main_window',
+        'macro.ui.action_editor',
+        'macro.ui.capture_dialog',
+        'macro.ui.key_capture_dialog',
+        'macro.ui.telegram_settings',
         'cv2',
         'numpy',
         'PyQt6',
@@ -50,6 +66,10 @@ def create_spec_file(
         'screeninfo',
         'telegram',
         'telegram.ext',
+        'pynput',
+        'pynput.keyboard',
+        'pynput.mouse',
+        'pyperclip',
     ]
     
     # 제외할 모듈들 (크기 최적화)
@@ -85,14 +105,15 @@ from pathlib import Path
 project_root = Path("{project_root}")
 src_path = project_root / "src"
 
-# 경로를 sys.path에 추가
-sys.path.insert(0, str(src_path))
+# 경로를 sys.path에 추가 (맨 앞에 추가하여 우선순위 확보)
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 block_cipher = None
 
 a = Analysis(
     ['{main_script}'],
-    pathex=[str(src_path)],
+    pathex=[str(src_path), str(project_root)],
     binaries=[],
     datas={datas},
     hiddenimports={hidden_imports},
@@ -116,28 +137,33 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
     {'a.datas,' if onefile else ''}
     {'[],' if not onefile else ''}
     name='{app_name}',
-    debug={str(debug).lower()},
+    debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console={str(debug).lower()},
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     {icon_arg}
 )
+'''
 
-{'' if onefile else '''
+    # macOS용 BUNDLE 추가 (onefile이 아닐 때만)
+    if not onefile and sys.platform == 'darwin':
+        spec_content += f'''
 app = BUNDLE(
     coll,
-    name=\'{}\'.app',
+    name='{app_name}.app',
     icon=None,
     bundle_identifier=None,
-)'''.format(app_name) if sys.platform == 'darwin' else ''}
+)
 '''
+
+    spec_content += ''''''
     
     # 스펙 파일 저장
     spec_file_path = project_root / f"{app_name}.spec"

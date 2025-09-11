@@ -12,7 +12,7 @@ import threading
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from ..models.macro_models import (
+from macro.models.macro_models import (
     MacroConfig,
     MacroSequence,
     MacroAction,
@@ -21,10 +21,10 @@ from ..models.macro_models import (
     ImageSearchFailureAction,
     ConditionType,
 )
-from .image_matcher import ImageMatcher
-from .screen_capture import ScreenCapture
-from .input_controller import InputController
-from .telegram_bot import SyncTelegramBot
+from macro.core.image_matcher import ImageMatcher
+from macro.core.screen_capture import ScreenCapture
+from macro.core.input_controller import InputController
+from macro.core.telegram_bot import SyncTelegramBot
 
 logger = logging.getLogger(__name__)
 

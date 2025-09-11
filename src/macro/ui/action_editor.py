@@ -25,13 +25,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QPoint
 from PyQt6.QtGui import QPixmap
-from ..models.macro_models import (
+from macro.models.macro_models import (
     MacroAction,
     ActionType,
     ImageSearchFailureAction,
     ConditionType,
 )
-from ..core.macro_engine import MacroEngine
+from macro.core.macro_engine import MacroEngine
 
 
 STR_ACTION_MAP = {
@@ -664,7 +664,7 @@ class ActionEditor(QDialog):
 
     def start_key_capture(self):
         """키 입력 캡처 시작"""
-        from .key_capture_dialog import KeyCaptureDialog
+        from macro.ui.key_capture_dialog import KeyCaptureDialog
 
         dialog = KeyCaptureDialog(self)
         result = dialog.exec()

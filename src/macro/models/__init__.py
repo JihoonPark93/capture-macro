@@ -2,7 +2,7 @@
 데이터 모델 정의 모듈
 """
 
-from .macro_models import (
+from macro.models.macro_models import (
     ActionType,
     MacroAction,
     MacroSequence,

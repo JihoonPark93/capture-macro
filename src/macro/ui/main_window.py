@@ -25,17 +25,25 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QApplication,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import (
     QAction,
 )
 
-from ..core.macro_engine import MacroEngine, MacroExecutionResult
-from ..core.global_hotkey_manager import GlobalHotkeyManager
-from ..models.macro_models import ActionType
-from .telegram_settings import TelegramSettingsDialog
-from .action_editor import ActionEditor
-from .capture_dialog import MacroStatusOverlay
+from pynput import keyboard
+from threading import Thread
+
+from macro.core.macro_engine import MacroEngine, MacroExecutionResult
+from macro.models.macro_models import ActionType
+from macro.ui.telegram_settings import TelegramSettingsDialog
+from macro.ui.action_editor import ActionEditor
+from macro.ui.capture_dialog import MacroStatusOverlay
+
+
+class HotkeySignal(QObject):
+    """Hotkey 이벤트 처리를 위한 signal 클래스"""
+    run_macro_requested = pyqtSignal()
+    stop_macro_requested = pyqtSignal()
 
 
 class MainWindow(QMainWindow):
@@ -46,9 +54,6 @@ class MainWindow(QMainWindow):
 
         # 매크로 엔진 초기화
         self.engine = MacroEngine()
-
-        # 글로벌 핫키 매니저 초기화 (싱글톤)
-        self.hotkey_manager = GlobalHotkeyManager()
 
         # 상태 변수
         self.is_capturing = False
@@ -73,6 +78,9 @@ class MainWindow(QMainWindow):
 
         # 다이얼로그
         self.telegram_dialog: Optional["TelegramSettingsDialog"] = None
+
+        # Hotkey signal 객체
+        self.hotkey_signal = HotkeySignal()
 
         # UI 초기화
         self.init_ui()
@@ -119,16 +127,27 @@ class MainWindow(QMainWindow):
         # 실행 메뉴
         run_menu = menubar.addMenu("실행 & 중지")
 
-        # F6 글로벌 핫키 등록
-        self.hotkey_manager.register_hotkey(
-            "<f10>", self.run_main_sequence, "매크로 실행"
-        )
-        self.hotkey_manager.register_hotkey(
-            "<f11>", self.stop_execution, "매크로 실행 중지"
-        )
+        def hotkey_listener():
+            def on_press(key):
+                try:
+                    if key == keyboard.Key.f10:
+                        # 메인 스레드로 signal 전송 (스레드 안전)
+                        self.hotkey_signal.run_macro_requested.emit()
+                    elif key == keyboard.Key.f11:
+                        # 메인 스레드로 signal 전송 (스레드 안전)
+                        self.hotkey_signal.stop_macro_requested.emit()
+                except Exception as e:
+                    print(f"Hotkey 처리 중 오류: {e}")
 
-        # 글로벌 핫키 리스닝 시작
-        self.hotkey_manager.start_listening()
+            try:
+                with keyboard.Listener(on_press=on_press) as listener:
+                    listener.join()
+            except Exception as e:
+                print(f"Keyboard listener 오류: {e}")
+
+        t = Thread(target=hotkey_listener,daemon=True)
+        t.start()
+        print("hotkey listener started")
 
         self.run_action = QAction("매크로 실행(F10)", self)
         self.run_action.triggered.connect(self.run_main_sequence)
@@ -373,6 +392,10 @@ class MainWindow(QMainWindow):
         self.engine.on_action_execute = lambda action: self.on_action_execute(action)
         self.engine.on_error = lambda error: self.on_engine_error(error)
 
+        # Hotkey signal 연결 (스레드 안전)
+        self.hotkey_signal.run_macro_requested.connect(self.run_main_sequence)
+        self.hotkey_signal.stop_macro_requested.connect(self.stop_execution)
+
     def load_data(self):
         """데이터 로드"""
         try:
@@ -546,7 +569,7 @@ class MainWindow(QMainWindow):
     def _create_mouse_capture_overlay(self):
         """캡쳐 오버레이 생성 (지연 실행)"""
         try:
-            from .capture_dialog import MousePositionOverlay
+            from macro.ui.capture_dialog import MousePositionOverlay
             from PyQt6.QtWidgets import QApplication
 
             print("마우스 캡쳐 오버레이 생성 시작")
@@ -601,7 +624,7 @@ class MainWindow(QMainWindow):
     def _create_capture_overlay(self):
         """캡쳐 오버레이 생성 (지연 실행)"""
         try:
-            from .capture_dialog import ScreenOverlay
+            from macro.ui.capture_dialog import ScreenOverlay
             from PyQt6.QtWidgets import QApplication
 
             print("캡쳐 오버레이 생성 시작")
@@ -754,7 +777,7 @@ class MainWindow(QMainWindow):
             import uuid
             from pathlib import Path
             from PyQt6.QtWidgets import QApplication
-            from ..models.macro_models import ImageTemplate
+            from macro.models.macro_models import ImageTemplate
 
             if not self.engine:
                 print("매크로 엔진이 연결되지 않았습니다")
@@ -1238,7 +1261,7 @@ class MainWindow(QMainWindow):
         """텔레그램 설정 다이얼로그 열기"""
         try:
             if not self.telegram_dialog:
-                from .telegram_settings import TelegramSettingsDialog
+                from macro.ui.telegram_settings import TelegramSettingsDialog
 
                 self.telegram_dialog = TelegramSettingsDialog(self, self.engine)
                 self.telegram_dialog.settings_changed.connect(
