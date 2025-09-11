@@ -40,6 +40,10 @@ class TelegramBot:
             and bool(self.config.chat_id)
         )
 
+    def use_finished_message(self) -> bool:
+        """설정 확인"""
+        return self.config.use_finished_message
+
     async def _ensure_session(self) -> aiohttp.ClientSession:
         """세션 확보"""
         if self.session is None or self.session.closed:
@@ -144,26 +148,6 @@ class TelegramBot:
 
         return success
 
-    async def send_error_report(
-        self, error_type: str, error_message: str, context: Optional[str] = None
-    ) -> bool:
-        """오류 보고서 전송"""
-        if not self.is_configured():
-            return False
-
-        message = f"""
-            🚨 <b>오류 발생</b>
-
-            ❗ <b>유형:</b> {error_type}
-            💬 <b>메시지:</b> {error_message}
-            🕐 <b>시간:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            """
-
-        if context:
-            message += f"\n📍 <b>컨텍스트:</b> {context}"
-
-        return await self.send_message(message.strip())
-
     async def close(self) -> None:
         """세션 종료"""
         if self.session and not self.session.closed:
@@ -221,6 +205,10 @@ class SyncTelegramBot:
         """설정 확인"""
         return self.async_bot.is_configured()
 
+    def use_finished_message(self) -> bool:
+        """설정 확인"""
+        return self.async_bot.use_finished_message()
+
     def send_message(
         self, message: str, chat_id: Optional[str] = None, parse_mode: str = "HTML"
     ) -> bool:
@@ -242,7 +230,6 @@ class SyncTelegramBot:
         except Exception as e:
             logger.error(f"동기 연결 테스트 실패: {e}")
             return False
-
 
     def close(self) -> None:
         """리소스 정리"""

@@ -68,10 +68,16 @@ class TelegramSettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
+        check_layout = QHBoxLayout()
         # 활성화 체크박스
         self.enabled_checkbox = QCheckBox("텔레그램 알림 사용")
         self.enabled_checkbox.toggled.connect(self.on_enabled_toggled)
-        layout.addWidget(self.enabled_checkbox)
+        check_layout.addWidget(self.enabled_checkbox)
+
+        # 매크로 완료 시 메시지 전송 체크박스
+        self.use_finished_message_checkbox = QCheckBox("매크로 완료 시 메시지 전송")
+        check_layout.addWidget(self.use_finished_message_checkbox)
+        layout.addLayout(check_layout)
 
         # 봇 설정
         bot_group = QGroupBox("봇 설정")
@@ -232,6 +238,7 @@ class TelegramSettingsDialog(QDialog):
             config = self.engine.config.telegram_config
 
             config.enabled = self.enabled_checkbox.isChecked()
+            config.use_finished_message = self.use_finished_message_checkbox.isChecked()
             config.bot_token = self.token_edit.text().strip()
             config.chat_id = self.chat_id_edit.text().strip()
 
@@ -265,4 +272,3 @@ class TelegramSettingsDialog(QDialog):
             self.test_thread.wait()
 
         event.accept()
-

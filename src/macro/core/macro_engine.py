@@ -195,6 +195,15 @@ class MacroEngine(QObject):
             result = self._execute_sequence_sync(sequence)
             # 시그널 발생 (스레드에서 안전함)
             print(f"시퀀스 완료 시그널 발생:")
+
+            if (
+                self.telegram_bot.is_configured()
+                and self.telegram_bot.use_finished_message()
+            ):
+                self.telegram_bot.send_message(
+                    "매크로 실행이 종료되었습니다. 확인해주세요"
+                )
+
             self.sequence_completed.emit(result)
 
         self.execution_thread = threading.Thread(target=run_sequence)
@@ -300,12 +309,6 @@ class MacroEngine(QObject):
             # 기존 콜백도 호출 (하위 호환성)
             if self.on_error:
                 self.on_error(e)
-
-            # 오류 알림
-            if self.telegram_bot.is_configured():
-                self.telegram_bot.send_error_report(
-                    "매크로 실행 오류", str(e), f"시퀀스: {sequence.name}"
-                )
 
         finally:
             result.execution_time = time.time() - start_time

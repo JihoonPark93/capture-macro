@@ -28,7 +28,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import (
     QAction,
-    QKeySequence,
 )
 
 from ..core.macro_engine import MacroEngine, MacroExecutionResult

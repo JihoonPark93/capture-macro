@@ -278,12 +278,14 @@ class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""
     enabled: bool = False
+    use_finished_message: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "bot_token": self.bot_token,
             "chat_id": self.chat_id,
             "enabled": self.enabled,
+            "use_finished_message": self.use_finished_message,
         }
 
     @classmethod
@@ -292,6 +294,7 @@ class TelegramConfig:
             bot_token=data.get("bot_token", ""),
             chat_id=data.get("chat_id", ""),
             enabled=data.get("enabled", False),
+            use_finished_message=data.get("use_finished_message", False),
         )
 
 
