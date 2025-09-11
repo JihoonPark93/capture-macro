@@ -225,8 +225,10 @@ class ActionEditor(QDialog):
         self.large_image_preview.setText(
             "이미지를 캡쳐하면 여기에 표시됩니다.\n클릭할 위치를 선택하세요.\nShift+드래그로 영역을 선택할 수 있습니다."
         )
-        self.region_overlay.hide()
-        self.large_position_marker.hide()
+        if hasattr(self, "region_overlay") and self.region_overlay:
+            self.region_overlay.hide()
+        if hasattr(self, "large_position_marker") and self.large_position_marker:
+            self.large_position_marker.hide()
 
         self.click_info_label.setVisible(False)
         self.region_info_label.setText("선택 영역: 없음")
@@ -847,14 +849,17 @@ class ActionEditor(QDialog):
                 x2 = max(start_image_pos[0], end_image_pos[0])
                 y2 = max(start_image_pos[1], end_image_pos[1])
 
-                self.selected_region = (x1, y1, x2, y2)
-
                 # 영역 정보 표시 업데이트
                 width = x2 - x1
                 height = y2 - y1
-                self.region_info_label.setText(
-                    f"선택 영역: ({x1}, {y1}) ~ ({x2}, {y2}) [{width}x{height}]"
-                )
+                if width < 10 and height < 10:
+                    self.region_info_label.setText("선택 영역: 없음")
+                    self.selected_region = None
+                else:
+                    self.region_info_label.setText(
+                        f"선택 영역: ({x1}, {y1}) ~ ({x2}, {y2}) [{width}x{height}]"
+                    )
+                    self.selected_region = (x1, y1, x2, y2)
 
                 # 영역 표시 유지
                 self.update_region_overlay(self.drag_start_pos, end_pos)

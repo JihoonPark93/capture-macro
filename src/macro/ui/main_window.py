@@ -3,6 +3,8 @@
 """
 
 from typing import Optional, List, Tuple
+import uuid
+import copy
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -145,7 +147,7 @@ class MainWindow(QMainWindow):
 
         # 텔레그램 설정 버튼
         telegram_btn = QPushButton("텔레그램 설정")
-        telegram_btn.setToolTip("텔레그램 밇 설정 및 연결")
+        telegram_btn.setToolTip("텔레그램 설정 및 연결")
         telegram_btn.clicked.connect(self.open_telegram_settings)
         toolbar.addWidget(telegram_btn)
 
@@ -212,20 +214,26 @@ class MainWindow(QMainWindow):
 
         self.add_action_btn = QPushButton("액션 추가")
         self.add_action_btn.setObjectName("success_button")
-        self.add_action_btn.setFixedSize(70, 30)
+        self.add_action_btn.setFixedSize(60, 30)
         self.add_action_btn.clicked.connect(self.add_action)
         action_btn_layout.addWidget(self.add_action_btn)
 
         self.edit_action_btn = QPushButton("액션 편집")
         self.edit_action_btn.setEnabled(False)
-        self.edit_action_btn.setFixedSize(70, 30)
+        self.edit_action_btn.setFixedSize(60, 30)
         self.edit_action_btn.clicked.connect(self.edit_action)
         action_btn_layout.addWidget(self.edit_action_btn)
+
+        self.duplicate_action_btn = QPushButton("액션 복제")
+        self.duplicate_action_btn.setEnabled(False)
+        self.duplicate_action_btn.setFixedSize(60, 30)
+        self.duplicate_action_btn.clicked.connect(self.duplicate_action)
+        action_btn_layout.addWidget(self.duplicate_action_btn)
 
         self.delete_action_btn = QPushButton("액션 삭제")
         self.delete_action_btn.setObjectName("danger_button")
         self.delete_action_btn.setEnabled(False)
-        self.delete_action_btn.setFixedSize(70, 30)
+        self.delete_action_btn.setFixedSize(60, 30)
         self.delete_action_btn.clicked.connect(self.delete_action)
         action_btn_layout.addWidget(self.delete_action_btn)
 
@@ -846,6 +854,7 @@ class MainWindow(QMainWindow):
         """액션 버튼 상태 업데이트 (메인 스레드에서 실행)"""
         self.edit_action_btn.setEnabled(has_selection)
         self.delete_action_btn.setEnabled(has_selection)
+        self.duplicate_action_btn.setEnabled(has_selection)
 
         # 순서 변경 버튼 상태 업데이트
         if has_selection:
@@ -897,6 +906,25 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"액션 편집 실패: {e}")
             QMessageBox.critical(self, "오류", f"액션을 편집할 수 없습니다: {e}")
+    
+    def duplicate_action(self):
+        """액션 복제"""
+        selected_rows = set(item.row() for item in self.action_table.selectedItems())
+        if not selected_rows:
+            return
+        
+        try:
+            sequence = self.engine.config.macro_sequence
+            for row in selected_rows:
+                new_action = copy.deepcopy(sequence.actions[row])
+                new_action.id = str(uuid.uuid4())
+                sequence.add_action(new_action)
+                sequence.move_action(new_action.id, row + 1)
+            self.engine.save_config()
+            self.refresh_action_table()
+        except Exception as e:
+            print(f"액션 복제 실패: {e}")
+            QMessageBox.critical(self, "오류", f"액션을 복제할 수 없습니다: {e}")
 
     def delete_action(self):
         """액션 삭제"""

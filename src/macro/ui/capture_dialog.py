@@ -625,9 +625,9 @@ class MacroStatusOverlay(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # 크기 설정 (고정 크기)
-        self.setFixedSize(300, 120)
+        self.setFixedSize(200, 70)
 
-        # 화면 우측 하단에 위치 설정
+        # 화면 위치 설정
         self._position_window()
 
         # 윈도우 표시
@@ -635,13 +635,13 @@ class MacroStatusOverlay(QWidget):
         self.raise_()
 
     def _position_window(self):
-        """화면 우측 하단에 윈도우 위치 설정"""
+        """화면 좌상단에 윈도우 위치 설정"""
         screen = QApplication.primaryScreen()
         screen_geometry = screen.geometry()
 
-        # 우측 하단 좌표 계산
-        x = screen_geometry.width() - self.width() - 20  # 오른쪽에서 20px 여백
-        y = screen_geometry.height() - self.height() - 20  # 아래쪽에서 20px 여백
+        # 좌표 계산
+        x = 20  # 왼쪽에서 20px 여백
+        y = 20  # 위쪽에서 20px 여백
 
         self.move(x, y)
 
