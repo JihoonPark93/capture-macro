@@ -72,47 +72,16 @@ class ImageMatcher:
         screenshot: np.ndarray,
         template: np.ndarray,
         threshold: float = 0.8,
-        method: int = cv2.TM_CCORR_NORMED,
+        method: int = cv2.TM_CCOEFF_NORMED,
     ) -> MatchResult:
         print("Start match_template")
 
-        def preprocess_color(template: np.ndarray, screenshot: np.ndarray):
-            # 템플릿 채널별 Otsu 적용
-            channels_t = cv2.split(template)
-            channels_s = cv2.split(screenshot)
-
-            th_template_channels = []
-            th_screen_channels = []
-
-            for t_ch, s_ch in zip(channels_t, channels_s):
-                _, th_t = cv2.threshold(
-                    t_ch, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-                )
-                _, th_s = cv2.threshold(s_ch, _, 255, cv2.THRESH_BINARY_INV)
-                th_template_channels.append(th_t)
-                th_screen_channels.append(th_s)
-
-            return (
-                cv2.merge(th_template_channels),
-                cv2.merge(th_screen_channels),
-                reduce(cv2.bitwise_or, th_template_channels),
-            )
 
         """템플릿 매칭 수행"""
         try:
-            # 템플릿/스크린샷을 이진화
-            th_template, th_screen, mask = preprocess_color(template, screenshot)
-
-            # Template Matching
-            cv2.imwrite("template.png", template)
-            cv2.imwrite("screenshot.png", screenshot)
-            cv2.imwrite("th_template.png", th_template)
-            cv2.imwrite("th_screen.png", th_screen)
-            cv2.imwrite("mask.png", mask)
-            # cv2.imwrite("mask.png", mask)
 
             # 템플릿 매칭 수행
-            result = cv2.matchTemplate(screenshot, template, method, mask=mask)
+            result = cv2.matchTemplate(screenshot, template, method)
 
             # 최적 매칭 위치 찾기
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)

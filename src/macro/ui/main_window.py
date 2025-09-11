@@ -116,26 +116,27 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
 
         # 실행 메뉴
-        run_menu = menubar.addMenu("실행(F11)")
+        run_menu = menubar.addMenu("실행 & 중지")
 
         # F6 글로벌 핫키 등록
-        self.hotkey_manager.register_hotkey("<f11>", self.run_main_sequence, "매크로 실행")
         self.hotkey_manager.register_hotkey(
-            "<f12>", self.stop_execution, "매크로 실행 중지"
+            "<f10>", self.run_main_sequence, "매크로 실행"
+        )
+        self.hotkey_manager.register_hotkey(
+            "<f11>", self.stop_execution, "매크로 실행 중지"
         )
 
         # 글로벌 핫키 리스닝 시작
         self.hotkey_manager.start_listening()
 
-        self.run_action = QAction("매크로 실행(F11)", self)
+        self.run_action = QAction("매크로 실행(F10)", self)
         self.run_action.triggered.connect(self.run_main_sequence)
         run_menu.addAction(self.run_action)
 
-        self.stop_action = QAction("실행 중지(F12)", self)
+        self.stop_action = QAction("실행 중지(F11)", self)
         self.stop_action.setEnabled(False)
         self.stop_action.triggered.connect(self.stop_execution)
         run_menu.addAction(self.stop_action)
-
 
     def create_toolbar(self):
         """툴바 생성"""
@@ -151,18 +152,18 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
 
         # 실행 버튼
-        self.run_btn = QPushButton("실행(F11)")
+        self.run_btn = QPushButton("실행(F10)")
         self.run_btn.setObjectName("primary_button")
-        self.run_btn.setToolTip("매크로 실행 (F11)")
+        self.run_btn.setToolTip("매크로 실행 (F10)")
         self.run_btn.setFixedSize(70, 30)
         self.run_btn.setEnabled(True)  # 항상 활성화
         self.run_btn.clicked.connect(self.run_main_sequence)
         toolbar.addWidget(self.run_btn)
 
         # 중지 버튼
-        self.stop_btn = QPushButton("중지(F12)")
+        self.stop_btn = QPushButton("중지(F11)")
         self.stop_btn.setObjectName("danger_button")
-        self.stop_btn.setToolTip("매크로 실행 중지 (F12)")
+        self.stop_btn.setToolTip("매크로 실행 중지 (F11)")
         self.stop_btn.setFixedSize(70, 30)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_execution)
@@ -1353,17 +1354,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """윈도우 종료 시"""
         if self.engine.is_running:
-            reply = QMessageBox.question(
-                self,
-                "종료 확인",
-                "매크로가 실행 중입니다. 강제로 종료하시겠습니까?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-
-            if reply == QMessageBox.StandardButton.No:
-                event.ignore()
-                return
-
             # 매크로 중지
             self.engine.stop_execution()
 

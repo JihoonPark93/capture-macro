@@ -118,27 +118,27 @@ class MacroEngine(QObject):
 
             # 두 스케일 팩터가 다르면 경고하고 더 안전한 값을 사용
             if abs(screen_scale - input_scale) > 0.1:
-                logger.warning(
+                print(
                     f"스케일 팩터 불일치: ScreenCapture={screen_scale}, InputController={input_scale}"
                 )
                 # 더 작은 값을 사용 (안전한 쪽으로)
                 safe_scale = min(screen_scale, input_scale)
                 self.input_controller.scale_factor = safe_scale
-                logger.info(f"스케일 팩터를 {safe_scale}로 통일했습니다")
+                print(f"스케일 팩터를 {safe_scale}로 통일했습니다")
             else:
-                logger.info(f"스케일 팩터 동기화 완료: {screen_scale}")
+                print(f"스케일 팩터 동기화 완료: {screen_scale}")
 
         except Exception as e:
-            logger.error(f"스케일 팩터 동기화 실패: {e}")
+            print(f"스케일 팩터 동기화 실패: {e}")
 
     def load_config(self) -> bool:
         """설정 파일 로드"""
         try:
             if Path(self.config_path).exists():
                 self.config = MacroConfig.load_from_file(self.config_path)
-                logger.info(f"설정 파일 로드됨: {self.config_path}")
+                print(f"설정 파일 로드됨: {self.config_path}")
             else:
-                logger.info("설정 파일이 없어서 기본 설정으로 시작합니다")
+                print("설정 파일이 없어서 기본 설정으로 시작합니다")
                 self.save_config()
 
             # 텔레그램 봇 설정 적용
@@ -147,17 +147,17 @@ class MacroEngine(QObject):
             return True
 
         except Exception as e:
-            logger.error(f"설정 파일 로드 실패: {e}")
+            print(f"설정 파일 로드 실패: {e}")
             return False
 
     def save_config(self) -> bool:
         """설정 파일 저장"""
         try:
             self.config.save_to_file(self.config_path)
-            logger.debug("설정 파일 저장됨")
+            print("설정 파일 저장됨")
             return True
         except Exception as e:
-            logger.error(f"설정 파일 저장 실패: {e}")
+            print(f"설정 파일 저장 실패: {e}")
             return False
 
     def add_image_template(
@@ -179,22 +179,22 @@ class MacroEngine(QObject):
         self.config.add_image_template(template)
         self.save_config()
 
-        logger.info(f"이미지 템플릿 추가됨: {name} ({template_id})")
+        print(f"이미지 템플릿 추가됨: {name} ({template_id})")
         return template_id
 
     def execute_sequence_async(self) -> None:
         """매크로 시퀀스 비동기 실행"""
         if self.is_running:
-            logger.warning("다른 매크로가 실행 중입니다")
+            print("다른 매크로가 실행 중입니다")
             return
 
         sequence = self.config.macro_sequence
-        logger.debug(f"시퀀스 시작: {sequence = }")
+        print(f"시퀀스 시작")
 
         def run_sequence():
             result = self._execute_sequence_sync(sequence)
             # 시그널 발생 (스레드에서 안전함)
-            logger.debug(f"시퀀스 완료 시그널 발생:")
+            print(f"시퀀스 완료 시그널 발생:")
             self.sequence_completed.emit(result)
 
         self.execution_thread = threading.Thread(target=run_sequence)
@@ -221,14 +221,17 @@ class MacroEngine(QObject):
             if self.on_sequence_start:
                 self.on_sequence_start()
 
-            logger.info(f"매크로 시퀀스 실행 시작: {sequence.name}")
+            print(f"매크로 시퀀스 실행 시작: {sequence.name}")
 
             # 루프 실행
-            for loop_index in range(sequence.loop_count):
+            loop_index = 0
+            while loop_index < sequence.loop_count:
+                loop_index += 1
+
                 if self.stop_requested:
                     break
 
-                logger.debug(f"루프 {loop_index + 1}/{sequence.loop_count} 시작")
+                print(f"루프 {loop_index + 1}/{sequence.loop_count} 시작")
 
                 # 액션들 실행
                 for action in sequence.actions:
@@ -236,7 +239,7 @@ class MacroEngine(QObject):
                         break
 
                     if not action.enabled:
-                        logger.debug(f"비활성화된 액션 건너뜀: {action.id}")
+                        print(f"비활성화된 액션 건너뜀: {action.id}")
                         continue
 
                     # 액션 실행 시그널 발생
@@ -256,24 +259,14 @@ class MacroEngine(QObject):
 
                     # 재시작 요청 확인
                     if self.restart_requested:
-                        logger.info("매크로 재시작 요청으로 처음부터 다시 실행")
-                        self.restart_requested = False
-                        # 재시작을 위해 현재 루프를 중단하고 처음부터 시작
+                        print("매크로 재시작 요청으로 처음부터 다시 실행")
                         break
-
-                    # 액션 간 지연
-                    if self.config.action_delay > 0:
-                        time.sleep(self.config.action_delay)
 
                 # 재시작 요청이 있으면 루프도 처음부터 시작
                 if self.restart_requested:
                     self.restart_requested = False
-                    loop_index = -1  # 다음 반복에서 0이 되도록
+                    loop_index = 0
                     continue
-
-                # 루프 간 지연
-                if loop_index < sequence.loop_count - 1 and sequence.loop_delay > 0:
-                    time.sleep(sequence.loop_delay)
 
             # 실행 결과 판정
             result.success = (
@@ -291,13 +284,13 @@ class MacroEngine(QObject):
             self.execution_stats["total_actions_executed"] += result.steps_executed
             self.execution_stats["last_execution_time"] = datetime.now().isoformat()
 
-            logger.info(
+            print(
                 f"매크로 시퀀스 실행 완료: {sequence.name}, "
                 f"성공: {result.success}, 실행시간: {result.execution_time:.2f}초"
             )
 
         except Exception as e:
-            logger.error(f"매크로 실행 중 오류: {e}")
+            print(f"매크로 실행 중 오류: {e}")
             result.error_message = str(e)
             result.success = False
 
@@ -326,7 +319,7 @@ class MacroEngine(QObject):
     def _execute_action(self, action: MacroAction) -> bool:
         """개별 액션 실행"""
         try:
-            logger.debug(f"액션 실행: {action.action_type}")
+            print(f"액션 실행: {action.action_type}")
 
             if action.action_type == ActionType.CLICK:
                 return self._execute_click_action(action)
@@ -356,11 +349,11 @@ class MacroEngine(QObject):
                 return self._execute_else_action(action)
 
             else:
-                logger.error(f"지원하지 않는 액션 타입: {action.action_type}")
+                print(f"지원하지 않는 액션 타입: {action.action_type}")
                 return False
 
         except Exception as e:
-            logger.error(f"액션 실행 중 오류: {action.action_type}, {e}")
+            print(f"액션 실행 중 오류: {action.action_type}, {e}")
             return False
 
     def _execute_click_action(self, action: MacroAction) -> bool:
@@ -372,51 +365,41 @@ class MacroEngine(QObject):
             )
 
         else:
-            logger.error("클릭 위치가 설정되지 않았습니다")
+            print("클릭 위치가 설정되지 않았습니다")
             return False
 
-    def _execute_image_click_action(self, action: MacroAction) -> bool:
-        """클릭 액션 실행"""
-        if action.image_template_id and action.click_position:
-            # 이미지를 찾아서 액션에서 지정한 위치 클릭
-            return self._find_and_click_image(action)
-        else:
-            logger.error("이미지 템플릿과 클릭 위치가 모두 필요합니다")
-            return False
-
-    def _find_and_click_image(
+    def _execute_image_click_action(
         self, action: MacroAction, double_click: bool = False, right_click: bool = False
     ) -> bool:
-        """이미지를 찾아서 클릭"""
-        if not action.image_template_id:
+        """클릭 액션 실행"""
+        if not action.image_template_id or not action.click_position:
+            print("이미지 템플릿과 클릭 위치가 모두 필요합니다")
             return False
 
         template = self.config.get_image_template(action.image_template_id)
         if not template:
-            logger.error(
-                f"이미지 템플릿을 찾을 수 없습니다: {action.image_template_id}"
-            )
+            print(f"이미지 템플릿을 찾을 수 없습니다: {action.image_template_id}")
             return False
 
         # 이미지 파일 존재 확인
         from pathlib import Path
 
         if not Path(template.file_path).exists():
-            logger.error(f"이미지 파일이 존재하지 않습니다: {template.file_path}")
+            print(f"이미지 파일이 존재하지 않습니다: {template.file_path}")
             return False
 
-        logger.debug(f"이미지 매칭 시도: {template.name} ({template.file_path})")
+        print(f"이미지 매칭 시도: {template.name} ({template.file_path})")
 
         screenshot = self.screen_capture.capture_full_screen()
         if screenshot is None:
-            logger.error("스크린샷 캡쳐 실패")
+            print("스크린샷 캡쳐 실패")
             return False
 
         # 매칭 임계값 설정 (기본값 또는 템플릿 설정)
         threshold = (
             getattr(action, "match_threshold", None) or template.threshold or 0.8
         )
-        logger.debug(f"매칭 임계값: {threshold}")
+        print(f"매칭 임계값: {threshold}")
 
         match_result = self.image_matcher.find_image_in_screenshot(
             screenshot,
@@ -426,20 +409,20 @@ class MacroEngine(QObject):
         )
 
         if not match_result.found:
-            logger.warning(
+            print(
                 f"이미지 매칭 실패: {template.name}, 임계값: {threshold}, 최대 신뢰도: {match_result.confidence:.3f}"
             )
 
             # 이미지 탐색 실패 시 처리 옵션에 따른 동작
             return self._handle_image_search_failure(action)
 
-        logger.info(
+        print(
             f"이미지 매칭 성공: {template.name}, 신뢰도: {match_result.confidence:.3f}, 매칭 위치: {match_result.center_position}"
         )
 
         # 액션에서 설정한 클릭 위치 사용 (필수)
         if not action.click_position:
-            logger.error(f"액션에 클릭 위치가 설정되지 않았습니다: {action.id}")
+            print(f"액션에 클릭 위치가 설정되지 않았습니다: {action.id}")
             return False
 
         # 매칭된 이미지의 상단 좌측 좌표에서 액션 클릭 위치만큼 오프셋 적용
@@ -450,7 +433,7 @@ class MacroEngine(QObject):
         actual_click_x = match_top_left[0] + action_click_x
         actual_click_y = match_top_left[1] + action_click_y
 
-        logger.info(
+        print(
             f"클릭 위치 계산: 매칭 시작점({match_top_left}) + 액션 오프셋({action.click_position}) = 실제 클릭({actual_click_x}, {actual_click_y})"
         )
 
@@ -464,7 +447,7 @@ class MacroEngine(QObject):
     def _execute_type_text_action(self, action: MacroAction) -> bool:
         """텍스트 입력 액션 실행"""
         if not action.text_input:
-            logger.warning("입력할 텍스트가 없습니다")
+            print("입력할 텍스트가 없습니다")
             return True
 
         return self.input_controller.type_text(action.text_input)
@@ -474,7 +457,7 @@ class MacroEngine(QObject):
         if action.key_combination:
             return self.input_controller.key_combination(action.key_combination)
         else:
-            logger.error("입력할 키가 지정되지 않았습니다")
+            print("입력할 키가 지정되지 않았습니다")
             return False
 
     def _execute_scroll_action(self, action: MacroAction) -> bool:
@@ -493,11 +476,11 @@ class MacroEngine(QObject):
     def _execute_telegram_action(self, action: MacroAction) -> bool:
         """텔레그램 메시지 전송 액션 실행"""
         if not action.telegram_message:
-            logger.warning("전송할 텔레그램 메시지가 없습니다")
+            print("전송할 텔레그램 메시지가 없습니다")
             return True
 
         if not self.telegram_bot.is_configured():
-            logger.warning("텔레그램이 설정되지 않았습니다")
+            print("텔레그램이 설정되지 않았습니다")
             return False
 
         return self.telegram_bot.send_message(action.telegram_message)
@@ -505,7 +488,7 @@ class MacroEngine(QObject):
     def stop_execution(self) -> None:
         """매크로 실행 중단"""
         if self.is_running:
-            logger.info("매크로 실행 중단 요청됨")
+            print("매크로 실행 중단 요청됨")
             self.stop_requested = True
 
             # 스레드 대기 (최대 5초)
@@ -529,67 +512,31 @@ class MacroEngine(QObject):
             action, "on_image_not_found", ImageSearchFailureAction.STOP_EXECUTION
         )
 
-        logger.info(f"이미지 탐색 실패 처리: {failure_action.value}")
+        print(f"이미지 탐색 실패 처리: {failure_action.value}")
 
         if failure_action == ImageSearchFailureAction.RESTART_SEQUENCE:
             # 매크로 처음부터 재실행
-            logger.info("매크로 처음부터 재실행 요청")
             self.restart_requested = True
-            return True  # 현재 액션은 성공으로 처리하여 루프 계속
+            return True
 
         elif failure_action == ImageSearchFailureAction.SKIP_TO_NEXT:
             # 무시하고 다음 단계
-            logger.info("현재 액션 건너뛰고 다음 단계로 진행")
-            return True  # 성공으로 처리하여 다음 액션으로
+            print("현재 액션 건너뛰고 다음 단계로 진행")
+            return True
 
         else:  # STOP_EXECUTION
             # 실행 중단
-            logger.info("매크로 실행 중단")
-            return False
-
-    def _retry_image_search(self, action: MacroAction) -> bool:
-        """이미지 탐색 재시도"""
-        if not action.image_template_id:
-            return False
-
-        template = self.config.get_image_template(action.image_template_id)
-        if not template:
-            return False
-
-        logger.debug(f"이미지 탐색 재시도: {template.name}")
-
-        screenshot = self.screen_capture.capture_full_screen()
-        if screenshot is None:
-            logger.error("스크린샷 캡쳐 실패")
-            return False
-
-        threshold = (
-            getattr(action, "match_threshold", None) or template.threshold or 0.8
-        )
-        match_result = self.image_matcher.find_image_in_screenshot(
-            screenshot, template.file_path, action.selected_region, threshold
-        )
-
-        if match_result.found:
-            logger.info(
-                f"재시도 성공: {template.name}, 신뢰도: {match_result.confidence:.3f}"
-            )
-            x, y = match_result.center_position
-
-            # 액션 타입에 따른 클릭 실행
-            if action.action_type == ActionType.IMAGE_CLICK:
-                return self.input_controller.click(x, y)
-        else:
-            logger.warning(f"재시도도 실패: {template.name}")
+            print("이미지 탐색 실패로 시퀀스 중단")
+            self.stop_execution()
             return False
 
     def _execute_if_action(self, action: MacroAction) -> bool:
         """IF 액션 실행 - 조건 체크"""
         try:
-            logger.debug(f"IF 조건 체크: {action.condition_type}")
+            print(f"IF 조건 체크: {action.condition_type}")
 
             if not action.condition_type:
-                logger.error("IF 액션에 조건 타입이 설정되지 않음")
+                print("IF 액션에 조건 타입이 설정되지 않음")
                 return False
 
             # 조건 체크
@@ -600,21 +547,21 @@ class MacroEngine(QObject):
                 self._condition_results = {}
             self._condition_results[action.id] = condition_result
 
-            logger.info(f"IF 조건 결과: {condition_result}")
+            print(f"IF 조건 결과: {condition_result}")
             return True  # IF 액션 자체는 항상 성공 (조건 체크만 수행)
 
         except Exception as e:
-            logger.error(f"IF 액션 실행 실패: {e}")
+            print(f"IF 액션 실행 실패: {e}")
             return False
 
     def _execute_else_action(self, action: MacroAction) -> bool:
         """ELSE 액션 실행 - 이전 IF 조건의 반대 결과 사용"""
         try:
-            logger.debug("ELSE 조건 체크")
+            print("ELSE 조건 체크")
 
             # 이전 IF 조건 결과 찾기
             if not hasattr(self, "_condition_results"):
-                logger.error("ELSE 액션 실행 시 이전 IF 조건 결과가 없음")
+                print("ELSE 액션 실행 시 이전 IF 조건 결과가 없음")
                 return False
 
             # 마지막 IF 조건 결과 사용
@@ -624,16 +571,16 @@ class MacroEngine(QObject):
                 break
 
             if last_if_result is None:
-                logger.error("ELSE 액션 실행 시 참조할 IF 조건 결과가 없음")
+                print("ELSE 액션 실행 시 참조할 IF 조건 결과가 없음")
                 return False
 
             # ELSE는 IF의 반대 결과
             else_result = not last_if_result
-            logger.info(f"ELSE 조건 결과: {else_result}")
+            print(f"ELSE 조건 결과: {else_result}")
             return True  # ELSE 액션 자체는 항상 성공
 
         except Exception as e:
-            logger.error(f"ELSE 액션 실행 실패: {e}")
+            print(f"ELSE 액션 실행 실패: {e}")
             return False
 
     def _check_condition(self, action: MacroAction) -> bool:
@@ -647,21 +594,19 @@ class MacroEngine(QObject):
                 ConditionType.IMAGE_NOT_FOUND,
             ]:
                 if not action.image_template_id:
-                    logger.error("이미지 기반 조건이지만 이미지 템플릿이 설정되지 않음")
+                    print("이미지 기반 조건이지만 이미지 템플릿이 설정되지 않음")
                     return False
 
                 # 이미지 템플릿 가져오기 (IF 액션도 동일한 image_template_id 사용)
                 template = self.config.get_image_template(action.image_template_id)
                 if not template:
-                    logger.error(
-                        f"이미지 템플릿을 찾을 수 없음: {action.image_template_id}"
-                    )
+                    print(f"이미지 템플릿을 찾을 수 없음: {action.image_template_id}")
                     return False
 
                 # 화면 캡쳐
                 screenshot = self.screen_capture.capture_screenshot()
                 if screenshot is None:
-                    logger.error("조건 체크용 화면 캡쳐 실패")
+                    print("조건 체크용 화면 캡쳐 실패")
                     return False
 
                 # 이미지 매칭
@@ -673,7 +618,7 @@ class MacroEngine(QObject):
                 )
 
                 image_found = match_result.found
-                logger.debug(
+                print(
                     f"조건 이미지 매칭 결과: {image_found}, 신뢰도: {match_result.confidence:.3f}"
                 )
 
@@ -683,11 +628,11 @@ class MacroEngine(QObject):
                     return not image_found
 
             else:
-                logger.error(f"알 수 없는 조건 타입: {action.condition_type}")
+                print(f"알 수 없는 조건 타입: {action.condition_type}")
                 return False
 
         except Exception as e:
-            logger.error(f"조건 체크 실패: {e}")
+            print(f"조건 체크 실패: {e}")
             return False
 
     def cleanup(self) -> None:
@@ -695,4 +640,4 @@ class MacroEngine(QObject):
         self.stop_execution()
         self.image_matcher.clear_cache()
         self.telegram_bot.close()
-        logger.info("매크로 엔진 정리 완료")
+        print("매크로 엔진 정리 완료")

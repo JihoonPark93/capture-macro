@@ -676,7 +676,7 @@ class MacroStatusOverlay(QWidget):
             font.setBold(False)
             painter.setFont(font)
 
-            stop_text = "중단: F12"
+            stop_text = "중단: F11"
             painter.drawText(20, 55, stop_text)
 
         finally:

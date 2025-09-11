@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QPoint
-
+from PyQt6.QtGui import QPixmap
 from ..models.macro_models import (
     MacroAction,
     ActionType,
@@ -32,6 +32,31 @@ from ..models.macro_models import (
     ConditionType,
 )
 from ..core.macro_engine import MacroEngine
+
+
+STR_ACTION_MAP = {
+    "마우스 클릭": ActionType.CLICK,
+    "이미지 클릭": ActionType.IMAGE_CLICK,
+    "텍스트 입력": ActionType.TYPE_TEXT,
+    # "키 입력": ActionType.KEY_PRESS,
+    "스크롤": ActionType.SCROLL,
+    "대기": ActionType.WAIT,
+    "텔레그램 전송": ActionType.SEND_TELEGRAM,
+    "조건문 (IF)": ActionType.IF,
+    "조건문 (ELSE)": ActionType.ELSE,
+}
+# 액션 타입 설정
+ACTION_STR_MAP = {
+    ActionType.CLICK: "마우스 클릭",
+    ActionType.IMAGE_CLICK: "이미지 클릭",
+    ActionType.TYPE_TEXT: "텍스트 입력",
+    ActionType.KEY_PRESS: "키 입력",
+    ActionType.SCROLL: "스크롤",
+    ActionType.WAIT: "대기",
+    ActionType.SEND_TELEGRAM: "텔레그램 전송",
+    ActionType.IF: "조건문 (IF)",
+    ActionType.ELSE: "조건문 (ELSE)",
+}
 
 
 class ActionEditor(QDialog):
@@ -108,7 +133,7 @@ class ActionEditor(QDialog):
                 # "더블클릭",
                 # "우클릭",
                 "텍스트 입력",
-                "키 입력",
+                # "키 입력",
                 "스크롤",
                 "대기",
                 "텔레그램 전송",
@@ -123,11 +148,6 @@ class ActionEditor(QDialog):
         self.settings_group = QGroupBox("액션 설정")
         self.settings_layout = QVBoxLayout(self.settings_group)
         layout.addWidget(self.settings_group)
-
-        # 기본값으로 "마우스 클릭" 선택 (편집 모드가 아닌 경우에만)
-        if not self.is_edit_mode:
-            self.action_type_combo.setCurrentText("마우스 클릭")
-            self.update_settings_ui()
 
         # 버튼들
         button_layout = QHBoxLayout()
@@ -156,6 +176,7 @@ class ActionEditor(QDialog):
         )
         right_layout.addWidget(self.image_title)
 
+        self.current_template_id = None
         # 이미지 미리보기 라벨 (오른쪽 패널 전체 사용)
         self.large_image_preview = QLabel()
         self.large_image_preview.setMinimumSize(400, 300)
@@ -192,6 +213,25 @@ class ActionEditor(QDialog):
 
         main_layout.addWidget(self.right_panel)
 
+    def init_ui_values(self):
+        title = "액션 편집" if self.is_edit_mode else "액션 추가"
+        self.setWindowTitle(title)
+
+        self.description_input.setText("")
+        self.action_type_combo.setCurrentText("마우스 클릭")
+
+        self.current_template_id = None
+        self.large_image_preview.setPixmap(QPixmap())
+        self.large_image_preview.setText(
+            "이미지를 캡쳐하면 여기에 표시됩니다.\n클릭할 위치를 선택하세요.\nShift+드래그로 영역을 선택할 수 있습니다."
+        )
+        self.region_overlay.hide()
+        self.large_position_marker.hide()
+
+        self.click_info_label.setVisible(False)
+        self.region_info_label.setText("선택 영역: 없음")
+        self.hide_region_overlay()
+
     def setup_connections(self):
         """신호 연결"""
         self.action_type_combo.currentTextChanged.connect(self.on_action_type_changed)
@@ -207,7 +247,6 @@ class ActionEditor(QDialog):
         preserved_click_position = getattr(self, "selected_click_position", None)
 
         self.update_settings_ui()
-
         # 템플릿 정보 복원 (액션 타입이 이미지 사용 타입인 경우)
         action_type = self.get_selected_action_type()
         if action_type in [
@@ -228,8 +267,10 @@ class ActionEditor(QDialog):
                 # 클릭 위치 복원
                 QTimer.singleShot(100, self._restore_click_position_after_type_change)
 
+        self.update_settings_ui()
+
     def update_settings_ui(self):
-        """설정 UI 업데이트"""
+        """설정 UI 업데이트 - self.action 값이 있으면 해당 값으로 설정, 없으면 기본값으로 설정"""
         # 기존 위젯들 안전하게 제거
         for i in reversed(range(self.settings_layout.count())):
             child = self.settings_layout.itemAt(i).widget()
@@ -306,6 +347,12 @@ class ActionEditor(QDialog):
             mouse_info_label.setStyleSheet("color: #6c757d; font-size: 12px;")
             form_layout.addRow(mouse_info_label)
 
+            # 액션 데이터가 있으면 클릭 위치 설정
+            if self.action and self.action.click_position:
+                self.click_x_spin.setValue(self.action.click_position[0])
+                self.click_y_spin.setValue(self.action.click_position[1])
+                self.selected_click_position = self.action.click_position
+
         if action_type in [
             ActionType.IMAGE_CLICK,
         ]:
@@ -327,18 +374,67 @@ class ActionEditor(QDialog):
             self.failure_action_combo.addItems(
                 [
                     "실행 중단",
-                    "화면 새로고침 (F5)",
                     "매크로 처음부터 재실행",
                     "무시하고 다음 단계",
                 ]
             )
-            self.failure_action_combo.setCurrentText("실행 중단")
             form_layout.addRow("이미지 탐색 실패 시:", self.failure_action_combo)
+
+            # 액션 데이터가 있으면 설정값 로드
+            if self.action:
+                # 실패 처리 옵션 설정
+                if hasattr(self.action, "on_image_not_found"):
+                    self.set_failure_action(self.action.on_image_not_found)
+                else:
+                    self.failure_action_combo.setCurrentText("실행 중단")
+
+                # 이미지 템플릿 로드
+                if self.action.image_template_id:
+                    self.current_template_id = self.action.image_template_id
+                    self.load_template_image(self.action.image_template_id)
+
+                    # 클릭 위치 설정
+                    if self.action.click_position:
+                        self.selected_click_position = self.action.click_position
+                        self.update_large_click_position_marker()
+                        if hasattr(self, "click_info_label"):
+                            x, y = self.action.click_position
+                            self.click_info_label.setText(f"클릭 위치: ({x}, {y})")
+
+                    # 선택된 영역 정보 로드
+                    if self.action.selected_region:
+                        x1, y1, x2, y2 = self.action.selected_region
+                        width = x2 - x1
+                        height = y2 - y1
+                        self.region_info_label.setText(
+                            f"선택 영역: ({x1}, {y1}) ~ ({x2}, {y2}) [{width}x{height}]"
+                        )
+                        # 이미지 좌표를 라벨 좌표로 변환
+                        start_label_pos = self.convert_image_pos_to_label_pos((x1, y1))
+                        end_label_pos = self.convert_image_pos_to_label_pos((x2, y2))
+
+                        if start_label_pos and end_label_pos:
+                            self.update_region_overlay(
+                                QPoint(start_label_pos[0], start_label_pos[1]),
+                                QPoint(end_label_pos[0], end_label_pos[1]),
+                            )
+                        else:
+                            self.hide_region_overlay()
+                    else:
+                        self.hide_region_overlay()
+                        self.region_info_label.setText("선택 영역: 없음")
+            else:
+                # 기본값 설정
+                self.failure_action_combo.setCurrentText("실행 중단")
 
         elif action_type == ActionType.TYPE_TEXT:
             self.text_input = QTextEdit()
             self.text_input.setMaximumHeight(100)
             form_layout.addRow("입력할 텍스트:", self.text_input)
+
+            # 액션 데이터가 있으면 텍스트 설정
+            if self.action and hasattr(self.action, "text_input"):
+                self.text_input.setPlainText(self.action.text_input or "")
 
         elif action_type == ActionType.KEY_PRESS:
             # 키 입력 캡처를 위한 위젯
@@ -363,21 +459,26 @@ class ActionEditor(QDialog):
 
             form_layout.addRow("키 조합:", self.key_input_widget)
 
+            # 액션 데이터가 있으면 키 조합 설정
+            if self.action and hasattr(self.action, "key_combination"):
+                keys = self.action.key_combination or []
+                self.key_input.setText("+".join(keys))
+                if keys:
+                    self.captured_keys = keys
+
         elif action_type == ActionType.SCROLL:
             # 스크롤 방향 선택
             self.scroll_direction_combo = QComboBox()
             self.scroll_direction_combo.addItems(
                 ["위쪽으로", "아래쪽으로", "왼쪽으로", "오른쪽으로"]
             )
-            self.scroll_direction_combo.setCurrentText("아래쪽으로")
             form_layout.addRow("스크롤 방향:", self.scroll_direction_combo)
 
             # 스크롤 픽셀 수
             self.scroll_amount_spin = QSpinBox()
-            self.scroll_amount_spin.setRange(1, 10000)
-            self.scroll_amount_spin.setValue(100)
-            self.scroll_amount_spin.setSuffix(" 픽셀")
-            form_layout.addRow("스크롤 픽셀:", self.scroll_amount_spin)
+            self.scroll_amount_spin.setRange(1, 100)
+            self.scroll_amount_spin.setSuffix(" 회")
+            form_layout.addRow("스크롤 횟수:", self.scroll_amount_spin)
 
             # 안내 텍스트
             scroll_info_label = QLabel(
@@ -386,17 +487,58 @@ class ActionEditor(QDialog):
             scroll_info_label.setStyleSheet("color: #6c757d; font-size: 12px;")
             form_layout.addRow(scroll_info_label)
 
+            # 액션 데이터가 있으면 스크롤 설정값 로드
+            if self.action:
+                # 스크롤 방향 설정
+                if (
+                    hasattr(self.action, "scroll_direction")
+                    and self.action.scroll_direction
+                ):
+                    direction_map = {
+                        "up": "위쪽으로",
+                        "down": "아래쪽으로",
+                        "left": "왼쪽으로",
+                        "right": "오른쪽으로",
+                    }
+                    direction_text = direction_map.get(
+                        self.action.scroll_direction, "아래쪽으로"
+                    )
+                    index = self.scroll_direction_combo.findText(direction_text)
+                    if index >= 0:
+                        self.scroll_direction_combo.setCurrentIndex(index)
+                else:
+                    self.scroll_direction_combo.setCurrentText("아래쪽으로")
+
+                # 스크롤 횟수 설정
+                if hasattr(self.action, "scroll_amount"):
+                    self.scroll_amount_spin.setValue(self.action.scroll_amount or 10)
+                else:
+                    self.scroll_amount_spin.setValue(10)
+            else:
+                # 기본값 설정
+                self.scroll_direction_combo.setCurrentText("아래쪽으로")
+                self.scroll_amount_spin.setValue(10)
+
         elif action_type == ActionType.WAIT:
             self.wait_seconds = QDoubleSpinBox()
             self.wait_seconds.setRange(0.1, 60.0)
-            self.wait_seconds.setValue(1.0)
             self.wait_seconds.setSuffix(" 초")
             form_layout.addRow("대기 시간:", self.wait_seconds)
+
+            # 액션 데이터가 있으면 대기 시간 설정
+            if self.action and hasattr(self.action, "wait_seconds"):
+                self.wait_seconds.setValue(self.action.wait_seconds or 1.0)
+            else:
+                self.wait_seconds.setValue(1.0)
 
         elif action_type == ActionType.SEND_TELEGRAM:
             self.telegram_message = QTextEdit()
             self.telegram_message.setMaximumHeight(100)
             form_layout.addRow("메시지:", self.telegram_message)
+
+            # 액션 데이터가 있으면 메시지 설정
+            if self.action and hasattr(self.action, "telegram_message"):
+                self.telegram_message.setPlainText(self.action.telegram_message or "")
 
         elif action_type == ActionType.IF:
             # 조건 타입 선택
@@ -425,7 +567,47 @@ class ActionEditor(QDialog):
             self.condition_type_combo.currentTextChanged.connect(
                 self.on_condition_type_changed
             )
-            self.on_condition_type_changed()  # 초기 설정
+
+            # 액션 데이터가 있으면 조건 설정값 로드
+            if self.action:
+                # 조건 타입 설정
+                if (
+                    hasattr(self.action, "condition_type")
+                    and self.action.condition_type
+                ):
+                    condition_text_map = {
+                        ConditionType.IMAGE_FOUND: "이미지 발견",
+                        ConditionType.IMAGE_NOT_FOUND: "이미지 미발견",
+                        ConditionType.ALWAYS: "항상 실행",
+                    }
+                    text = condition_text_map.get(
+                        self.action.condition_type, "항상 실행"
+                    )
+                    index = self.condition_type_combo.findText(text)
+                    if index >= 0:
+                        self.condition_type_combo.setCurrentIndex(index)
+                else:
+                    self.condition_type_combo.setCurrentText("항상 실행")
+
+                # 이미지 템플릿 로드
+                if self.action.image_template_id:
+                    self.current_template_id = self.action.image_template_id
+                    self.load_template_image(self.action.image_template_id)
+
+                    # 조건 이미지 입력 필드에 템플릿 이름 표시
+                    if hasattr(self, "engine"):
+                        engine = self.engine
+                        template = engine.config.get_image_template(
+                            self.action.image_template_id
+                        )
+                        if template:
+                            self.condition_image_input.setText(template.name)
+            else:
+                # 기본값 설정
+                self.condition_type_combo.setCurrentText("항상 실행")
+
+            # 초기 설정 적용
+            self.on_condition_type_changed()
 
         elif action_type == ActionType.ELSE:
             # ELSE는 별도 설정이 필요 없음
@@ -435,8 +617,20 @@ class ActionEditor(QDialog):
 
         # 공통 설정
         self.enabled_check = QCheckBox("활성화")
-        self.enabled_check.setChecked(True)
         form_layout.addRow(self.enabled_check)
+
+        # 액션 데이터가 있으면 활성화 상태 설정
+        if self.action and hasattr(self.action, "enabled"):
+            self.enabled_check.setChecked(self.action.enabled)
+        else:
+            self.enabled_check.setChecked(True)
+
+        # 설명 설정 (공통)
+        if hasattr(self, "description_input"):
+            if self.action and hasattr(self.action, "description"):
+                self.description_input.setText(self.action.description or "")
+            else:
+                self.description_input.setText("")
 
         # 메모리 누수 방지를 위해 제대로 된 부모-자식 관계 설정
         widget = QWidget(self.settings_group)
@@ -770,8 +964,6 @@ class ActionEditor(QDialog):
             template = engine.config.get_image_template(template_id)
 
             if template and template.file_path and Path(template.file_path).exists():
-                from PyQt6.QtGui import QPixmap
-
                 pixmap = QPixmap(template.file_path)
                 if not pixmap.isNull():
                     # 원본 픽스맵 저장 (좌표 변환용)
@@ -843,20 +1035,9 @@ class ActionEditor(QDialog):
 
     def get_selected_action_type(self) -> Optional[ActionType]:
         """선택된 액션 타입 반환"""
-        type_map = {
-            "마우스 클릭": ActionType.CLICK,
-            "이미지 클릭": ActionType.IMAGE_CLICK,
-            "텍스트 입력": ActionType.TYPE_TEXT,
-            "키 입력": ActionType.KEY_PRESS,
-            "스크롤": ActionType.SCROLL,
-            "대기": ActionType.WAIT,
-            "텔레그램 전송": ActionType.SEND_TELEGRAM,
-            "조건문 (IF)": ActionType.IF,
-            "조건문 (ELSE)": ActionType.ELSE,
-        }
 
         text = self.action_type_combo.currentText()
-        return type_map.get(text)
+        return STR_ACTION_MAP.get(text)
 
     def get_selected_failure_action(self) -> ImageSearchFailureAction:
         """선택된 실패 처리 옵션 반환"""
@@ -906,163 +1087,20 @@ class ActionEditor(QDialog):
         """액션 데이터 로드 (편집 모드)"""
         self.action = action
         self.is_edit_mode = self.action is not None
+        title = "액션 편집" if self.is_edit_mode else "액션 추가"
+        self.setWindowTitle(title)
+
         if not self.action:
-            self.hide_region_overlay()
-            return
+            self.init_ui_values()
+        else:
+            type_text = ACTION_STR_MAP.get(self.action.action_type, "")
+            if type_text:
+                index = self.action_type_combo.findText(type_text)
+                if index >= 0:
+                    self.action_type_combo.setCurrentIndex(index)
 
-        # 액션 타입 설정
-        type_map = {
-            ActionType.CLICK: "마우스 클릭",
-            ActionType.IMAGE_CLICK: "이미지 클릭",
-            ActionType.TYPE_TEXT: "텍스트 입력",
-            ActionType.KEY_PRESS: "키 입력",
-            ActionType.SCROLL: "스크롤",
-            ActionType.WAIT: "대기",
-            ActionType.SEND_TELEGRAM: "텔레그램 전송",
-            ActionType.IF: "조건문 (IF)",
-            ActionType.ELSE: "조건문 (ELSE)",
-        }
-
-        type_text = type_map.get(self.action.action_type, "")
-        if type_text:
-            index = self.action_type_combo.findText(type_text)
-            if index >= 0:
-                self.action_type_combo.setCurrentIndex(index)
-
-        # UI 업데이트 후 데이터 로드
+        # UI 업데이트 (self.action이 설정된 상태에서 호출)
         self.update_settings_ui()
-
-        # 설명 로드
-        if hasattr(self, "description_input") and hasattr(self.action, "description"):
-            self.description_input.setText(self.action.description or "")
-
-        # 액션별 데이터 로드
-        if self.action.action_type == ActionType.CLICK:
-            # 클릭 위치 표시
-            if hasattr(self, "click_x_spin") and self.action.click_position:
-                self.click_x_spin.setValue(self.action.click_position[0])
-                self.click_y_spin.setValue(self.action.click_position[1])
-                # 내부 변수에도 저장
-                self.selected_click_position = self.action.click_position
-
-        elif self.action.action_type in [
-            ActionType.IMAGE_CLICK,
-        ]:
-            # 이미지 템플릿 로드 (필수)
-            if self.action.image_template_id:
-                self.current_template_id = self.action.image_template_id
-                # 템플릿 이미지 표시
-                self.load_template_image(self.action.image_template_id)
-
-                # 기존 클릭 위치 표시
-                if self.action.click_position:
-                    self.selected_click_position = self.action.click_position
-                    self.update_large_click_position_marker()
-
-                    # 클릭 위치 정보 업데이트
-                    if hasattr(self, "click_info_label"):
-                        x, y = self.action.click_position
-                        self.click_info_label.setText(f"클릭 위치: ({x}, {y})")
-
-                # 선택된 영역 정보 로드
-                if self.action.selected_region:
-                    # 영역 정보 표시 업데이트
-                    x1, y1, x2, y2 = self.action.selected_region
-                    width = x2 - x1
-                    height = y2 - y1
-                    self.region_info_label.setText(
-                        f"선택 영역: ({x1}, {y1}) ~ ({x2}, {y2}) [{width}x{height}]"
-                    )
-                    # 이미지 좌표를 라벨 좌표로 변환
-                    start_label_pos = self.convert_image_pos_to_label_pos((x1, y1))
-                    end_label_pos = self.convert_image_pos_to_label_pos((x2, y2))
-
-                    if start_label_pos and end_label_pos:
-                        self.update_region_overlay(
-                            QPoint(start_label_pos[0], start_label_pos[1]),
-                            QPoint(end_label_pos[0], end_label_pos[1]),
-                        )
-                    else:
-                        self.hide_region_overlay()
-                else:
-                    self.hide_region_overlay()
-                    self.region_info_label.setText(f"선택 영역: 없음")
-
-            # 실패 처리 옵션 로드
-            if hasattr(self.action, "on_image_not_found"):
-                self.set_failure_action(self.action.on_image_not_found)
-
-        elif self.action.action_type == ActionType.TYPE_TEXT:
-            if hasattr(self, "text_input"):
-                self.text_input.setPlainText(self.action.text_input or "")
-
-        elif self.action.action_type == ActionType.KEY_PRESS:
-            if hasattr(self, "key_input"):
-                keys = self.action.key_combination or []
-                self.key_input.setText("+".join(keys))
-                # 로드된 키 조합을 captured_keys에도 저장
-                if keys:
-                    self.captured_keys = keys
-
-        elif self.action.action_type == ActionType.SCROLL:
-            # 스크롤 방향 설정
-            if hasattr(self, "scroll_direction_combo") and self.action.scroll_direction:
-                direction_map = {
-                    "up": "위쪽으로",
-                    "down": "아래쪽으로",
-                    "left": "왼쪽으로",
-                    "right": "오른쪽으로",
-                }
-                direction_text = direction_map.get(
-                    self.action.scroll_direction, "아래쪽으로"
-                )
-                index = self.scroll_direction_combo.findText(direction_text)
-                if index >= 0:
-                    self.scroll_direction_combo.setCurrentIndex(index)
-
-            # 스크롤 픽셀 수 설정
-            if hasattr(self, "scroll_amount_spin"):
-                self.scroll_amount_spin.setValue(self.action.scroll_amount or 100)
-
-        elif self.action.action_type == ActionType.WAIT:
-            if hasattr(self, "wait_seconds"):
-                self.wait_seconds.setValue(self.action.wait_seconds or 1.0)
-
-        elif self.action.action_type == ActionType.SEND_TELEGRAM:
-            if hasattr(self, "telegram_message"):
-                self.telegram_message.setPlainText(self.action.telegram_message or "")
-
-        elif self.action.action_type == ActionType.IF:
-            # 조건 타입 설정
-            if hasattr(self, "condition_type_combo") and self.action.condition_type:
-                condition_text_map = {
-                    ConditionType.IMAGE_FOUND: "이미지 발견",
-                    ConditionType.IMAGE_NOT_FOUND: "이미지 미발견",
-                    ConditionType.ALWAYS: "항상 실행",
-                }
-                text = condition_text_map.get(self.action.condition_type, "항상 실행")
-                index = self.condition_type_combo.findText(text)
-                if index >= 0:
-                    self.condition_type_combo.setCurrentIndex(index)
-
-            # 이미지 템플릿 로드 (IF 액션도 동일한 image_template_id 사용)
-            if self.action.image_template_id:
-                self.current_template_id = self.action.image_template_id
-                # 템플릿 이미지 표시
-                self.load_template_image(self.action.image_template_id)
-
-                # 조건 이미지 입력 필드에 템플릿 이름 표시
-                if hasattr(self, "condition_image_input") and hasattr(self, "engine"):
-                    engine = self.engine
-                    template = engine.config.get_image_template(
-                        self.action.image_template_id
-                    )
-                    if template:
-                        self.condition_image_input.setText(template.name)
-
-        # 활성화 상태
-        if hasattr(self, "enabled_check"):
-            self.enabled_check.setChecked(self.action.enabled)
 
     def save_action(self):
         """액션 저장"""

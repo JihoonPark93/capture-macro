@@ -231,7 +231,6 @@ ktx-macro-v2/
   "screenshot_save_path": "assets/screenshots",
   "auto_save_interval": 30,
   "match_confidence_threshold": 0.8,
-  "action_delay": 0.5,
   "telegram_config": {
     "enabled": false,
     "bot_token": "",

@@ -7,6 +7,7 @@ import time
 import logging
 from typing import List, Optional, Tuple
 import platform
+import pyperclip
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +23,12 @@ class InputController:
         self.platform = platform.system().lower()
 
         # 기본 지연 시간
-        self.default_delay = 0.01
-        self.click_delay = 0.05
-        self.key_delay = 0.02
+        self.default_delay = 0
+        self.click_delay = 0
+        self.key_delay = 0
 
         # 마우스 이동 설정
-        self.mouse_move_duration = 0.01
+        self.mouse_move_duration = 0
 
         # 좌표 스케일링 팩터 (HiDPI 대응)
         self.scale_factor = self._get_display_scale_factor()
@@ -309,13 +310,13 @@ class InputController:
 
             print(f"텍스트 입력: '{text[:50]}{'...' if len(text) > 50 else ''}'")
 
-            # 한글 처리를 위한 개별 문자 입력
-            if self._contains_korean(text):
-                for char in text:
-                    pyautogui.write(char, interval=interval)
-                    time.sleep(self.key_delay)
-            else:
-                pyautogui.write(text, interval=interval)
+            pyperclip.copy(text)
+
+            if self.platform == "darwin":  # macOS
+                pyautogui.hotkey("command", "v")
+            else:  # Windows, Linux 등
+                pyautogui.hotkey("ctrl", "v")
+            # pyautogui.write(text, interval=interval)
 
             time.sleep(self.default_delay)
             return True

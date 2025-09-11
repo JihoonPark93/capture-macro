@@ -10,10 +10,10 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QHBoxLayout,
-    QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeyEvent
+import platform
 
 
 class KeyCaptureDialog(QDialog):
@@ -21,6 +21,7 @@ class KeyCaptureDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.platform = platform.system().lower()
 
         self.captured_keys: List[str] = []
         self.is_capturing = False
@@ -41,7 +42,8 @@ class KeyCaptureDialog(QDialog):
         self.info_label = QLabel(
             "키 입력을 시작합니다.\n\n"
             "원하는 키 조합을 누르세요.\n"
-            "(예: Ctrl+C, Alt+Tab)\n\n"
+            "(예: Ctrl+C, Alt+Tab)\n"
+            "Backspace 키를 눌러 마지막 키를 삭제할 수 있습니다.\n\n"
             "입력이 완료되면 Enter 키를 누르거나 확인 버튼을 클릭하세요."
         )
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -180,14 +182,22 @@ class KeyCaptureDialog(QDialog):
 
         # 수정자 키들
         modifier_names = []
-        if modifiers & Qt.KeyboardModifier.ControlModifier:
-            modifier_names.append("Ctrl")
-        if modifiers & Qt.KeyboardModifier.AltModifier:
-            modifier_names.append("Alt")
         if modifiers & Qt.KeyboardModifier.ShiftModifier:
             modifier_names.append("Shift")
-        if modifiers & Qt.KeyboardModifier.MetaModifier:
-            modifier_names.append("Meta")
+        if self.platform == "darwin":
+            if modifiers & Qt.KeyboardModifier.ControlModifier:
+                modifier_names.append("Command")
+            if modifiers & Qt.KeyboardModifier.AltModifier:
+                modifier_names.append("Meta")
+            if modifiers & Qt.KeyboardModifier.MetaModifier:
+                modifier_names.append("Alt")
+        else:
+            if modifiers & Qt.KeyboardModifier.ControlModifier:
+                modifier_names.append("Ctrl")
+            if modifiers & Qt.KeyboardModifier.AltModifier:
+                modifier_names.append("Alt")
+            if modifiers & Qt.KeyboardModifier.MetaModifier:
+                modifier_names.append("Meta")
 
         # 수정자 키와 함께 반환
         if modifier_names:

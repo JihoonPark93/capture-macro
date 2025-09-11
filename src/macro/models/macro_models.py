@@ -209,7 +209,6 @@ class MacroSequence:
     description: str = ""
     actions: List[MacroAction] = field(default_factory=list)
     loop_count: int = 1
-    loop_delay: float = 1.0
     created_at: datetime = field(default_factory=datetime.now)
     modified_at: datetime = field(default_factory=datetime.now)
 
@@ -249,7 +248,6 @@ class MacroSequence:
             "description": self.description,
             "actions": [action.to_dict() for action in self.actions],
             "loop_count": self.loop_count,
-            "loop_delay": self.loop_delay,
             "created_at": self.created_at.isoformat(),
             "modified_at": self.modified_at.isoformat(),
         }
@@ -264,7 +262,6 @@ class MacroSequence:
                 for action_data in data.get("actions", [])
             ],
             loop_count=data.get("loop_count", 1),
-            loop_delay=data.get("loop_delay", 1.0),
             created_at=datetime.fromisoformat(
                 data.get("created_at", datetime.now().isoformat())
             ),
@@ -318,7 +315,6 @@ class MacroConfig:
     screenshot_save_path: str = "assets/screenshots"
     auto_save_interval: int = 30  # seconds
     match_confidence_threshold: float = 0.7
-    action_delay: float = 0.5  # seconds between actions
 
     def add_image_template(self, template: ImageTemplate) -> None:
         """이미지 템플릿 추가"""
@@ -350,7 +346,6 @@ class MacroConfig:
             "screenshot_save_path": self.screenshot_save_path,
             "auto_save_interval": self.auto_save_interval,
             "match_confidence_threshold": self.match_confidence_threshold,
-            "action_delay": self.action_delay,
         }
 
     @classmethod
@@ -374,7 +369,6 @@ class MacroConfig:
             screenshot_save_path=data.get("screenshot_save_path", "assets/screenshots"),
             auto_save_interval=data.get("auto_save_interval", 30),
             match_confidence_threshold=data.get("match_confidence_threshold", 0.7),
-            action_delay=data.get("action_delay", 0.5),
         )
 
     def save_to_file(self, file_path: str) -> None:
