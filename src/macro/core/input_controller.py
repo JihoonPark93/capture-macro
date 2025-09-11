@@ -5,10 +5,8 @@
 import pyautogui
 import time
 import logging
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 import platform
-
-from ..models.macro_models import ActionType
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +22,12 @@ class InputController:
         self.platform = platform.system().lower()
 
         # 기본 지연 시간
-        self.default_delay = 0.1
+        self.default_delay = 0.01
         self.click_delay = 0.05
         self.key_delay = 0.02
 
         # 마우스 이동 설정
-        self.mouse_move_duration = 0.2
+        self.mouse_move_duration = 0.01
 
         # 좌표 스케일링 팩터 (HiDPI 대응)
         self.scale_factor = self._get_display_scale_factor()
@@ -113,7 +111,7 @@ class InputController:
             return False
 
     def move_mouse(
-        self, x: int, y: int, duration: Optional[float] = None, smooth: bool = True
+        self, x: int, y: int, duration: Optional[float] = None, smooth: bool = False
     ) -> bool:
         """마우스 이동"""
         try:
@@ -129,10 +127,9 @@ class InputController:
             )
 
             # 여러 번 시도로 정확도 향상 (macOS 호환성)
-            max_attempts = 3
+            max_attempts = 1
             for attempt in range(max_attempts):
                 pyautogui.moveTo(adjusted_x, adjusted_y, duration=duration)
-                time.sleep(0.05)  # 짧은 대기
 
                 # 이동 확인
                 final_x, final_y = pyautogui.position()

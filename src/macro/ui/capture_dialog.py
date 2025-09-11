@@ -441,41 +441,43 @@ class ScreenOverlay(QWidget):
                 # 전체 화면을 어둡게 오버레이
                 overlay_color = QColor(0, 0, 0, 128)  # 반투명 검은색
                 padding = 3
-                self.selection_rect.adjust(-padding, -padding, padding, padding)
+                draw_rect = self.selection_rect.adjusted(
+                    -padding, -padding, padding, padding
+                )
 
                 # 선택 영역을 제외한 나머지 영역에만 오버레이 적용
                 # 선택 영역 위쪽
-                if self.selection_rect.top() > 0:
-                    top_rect = QRect(0, 0, self.width(), self.selection_rect.top())
+                if draw_rect.top() > 0:
+                    top_rect = QRect(0, 0, self.width(), draw_rect.top())
                     painter.fillRect(top_rect, overlay_color)
 
                 # 선택 영역 아래쪽
-                if self.selection_rect.bottom() < self.height():
+                if draw_rect.bottom() < self.height():
                     bottom_rect = QRect(
                         0,
-                        self.selection_rect.bottom(),
+                        draw_rect.bottom(),
                         self.width(),
-                        self.height() - self.selection_rect.bottom(),
+                        self.height() - draw_rect.bottom(),
                     )
                     painter.fillRect(bottom_rect, overlay_color)
 
                 # 선택 영역 왼쪽
-                if self.selection_rect.left() > 0:
+                if draw_rect.left() > 0:
                     left_rect = QRect(
                         0,
-                        self.selection_rect.top(),
-                        self.selection_rect.left(),
-                        self.selection_rect.height(),
+                        draw_rect.top(),
+                        draw_rect.left(),
+                        draw_rect.height(),
                     )
                     painter.fillRect(left_rect, overlay_color)
 
                 # 선택 영역 오른쪽
-                if self.selection_rect.right() < self.width():
+                if draw_rect.right() < self.width():
                     right_rect = QRect(
-                        self.selection_rect.right(),
-                        self.selection_rect.top(),
-                        self.width() - self.selection_rect.right(),
-                        self.selection_rect.height(),
+                        draw_rect.right(),
+                        draw_rect.top(),
+                        self.width() - draw_rect.right(),
+                        draw_rect.height(),
                     )
                     painter.fillRect(right_rect, overlay_color)
 
@@ -483,7 +485,7 @@ class ScreenOverlay(QWidget):
                 # FIXME: 빨간 테두리가 캡쳐되는 문제 수정 테두리 그리기 전 패딩 추가
                 pen = QPen(QColor(255, 0, 0), 2, Qt.PenStyle.SolidLine)
                 painter.setPen(pen)
-                painter.drawRect(self.selection_rect)
+                painter.drawRect(draw_rect)
 
                 # 선택 영역 정보 표시
                 self.draw_selection_info(painter)
@@ -595,4 +597,99 @@ class ScreenOverlay(QWidget):
                 print(f"[DEBUG] Selection too small: {self.selection_rect}")
                 self.selection_rect = QRect()
                 self.update()
+        event.accept()
+
+
+class MacroStatusOverlay(QWidget):
+    """매크로 동작 중 상태를 표시하는 오버레이"""
+
+    def __init__(self):
+        super().__init__()
+
+        # 부모 없는 독립 윈도우로 설정
+        self.setParent(None)
+
+        # 윈도우 플래그 설정
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Window
+            | Qt.WindowType.X11BypassWindowManagerHint
+        )
+
+        # 투명도 및 배경 설정
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+        # 포커스 정책 설정 (이벤트를 받지 않도록)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        # 크기 설정 (고정 크기)
+        self.setFixedSize(300, 120)
+
+        # 화면 우측 하단에 위치 설정
+        self._position_window()
+
+        # 윈도우 표시
+        self.show()
+        self.raise_()
+
+    def _position_window(self):
+        """화면 우측 하단에 윈도우 위치 설정"""
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.geometry()
+
+        # 우측 하단 좌표 계산
+        x = screen_geometry.width() - self.width() - 20  # 오른쪽에서 20px 여백
+        y = screen_geometry.height() - self.height() - 20  # 아래쪽에서 20px 여백
+
+        self.move(x, y)
+
+    def paintEvent(self, event):
+        """그리기 이벤트"""
+        painter = QPainter(self)
+        try:
+            # 검은 배경 그리기 (반투명)
+            bg_color = QColor(0, 0, 0, 200)  # 검은색, 200/255 투명도
+            painter.fillRect(self.rect(), bg_color)
+
+            # 테두리 그리기 (빨간색)
+            pen = QPen(QColor(255, 0, 0), 2, Qt.PenStyle.SolidLine)
+            painter.setPen(pen)
+            painter.drawRect(self.rect().adjusted(1, 1, -1, -1))
+
+            # 폰트 설정
+            font = QFont()
+            font.setPointSize(18)
+            font.setBold(True)
+            painter.setFont(font)
+
+            # 빨간 글씨로 텍스트 그리기
+            painter.setPen(QColor(255, 0, 0))
+
+            # 메인 텍스트
+            main_text = "매크로 동작 중..."
+            painter.drawText(20, 35, main_text)
+
+            # 중단 방법 안내 텍스트
+            font.setPointSize(16)
+            font.setBold(False)
+            painter.setFont(font)
+
+            stop_text = "중단: F12"
+            painter.drawText(20, 55, stop_text)
+
+        finally:
+            painter.end()
+
+    def update_status(self, is_running: bool):
+        """매크로 상태 업데이트"""
+        if is_running:
+            self.show()
+            self.raise_()
+        else:
+            self.hide()
+
+    def closeEvent(self, event):
+        """윈도우 닫기 시 정리"""
         event.accept()

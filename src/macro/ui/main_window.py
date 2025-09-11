@@ -30,9 +30,11 @@ from PyQt6.QtGui import (
 )
 
 from ..core.macro_engine import MacroEngine, MacroExecutionResult
+from ..core.global_hotkey_manager import GlobalHotkeyManager
 from ..models.macro_models import ActionType
 from .telegram_settings import TelegramSettingsDialog
 from .action_editor import ActionEditor
+from .capture_dialog import MacroStatusOverlay
 
 
 class MainWindow(QMainWindow):
@@ -43,6 +45,9 @@ class MainWindow(QMainWindow):
 
         # 매크로 엔진 초기화
         self.engine = MacroEngine()
+
+        # 글로벌 핫키 매니저 초기화 (싱글톤)
+        self.hotkey_manager = GlobalHotkeyManager()
 
         # 상태 변수
         self.is_capturing = False
@@ -110,49 +115,27 @@ class MainWindow(QMainWindow):
         """메뉴바 생성"""
         menubar = self.menuBar()
 
-        # 파일 메뉴
-        file_menu = menubar.addMenu("파일(&F)")
-
-        new_action = QAction("새 설정(&N)", self)
-        new_action.setShortcut(QKeySequence.StandardKey.New)
-        new_action.triggered.connect(self.new_config)
-        file_menu.addAction(new_action)
-
-        open_action = QAction("설정 열기(&O)", self)
-        open_action.setShortcut(QKeySequence.StandardKey.Open)
-        open_action.triggered.connect(self.open_config)
-        file_menu.addAction(open_action)
-
-        save_action = QAction("설정 저장(&S)", self)
-        save_action.setShortcut(QKeySequence.StandardKey.Save)
-        save_action.triggered.connect(self.save_config)
-        file_menu.addAction(save_action)
-
-        file_menu.addSeparator()
-
-        exit_action = QAction("종료(&X)", self)
-        exit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-
-        # 편집 메뉴
-        edit_menu = menubar.addMenu("편집(&E)")
-
-        edit_menu.addSeparator()
-
         # 실행 메뉴
-        run_menu = menubar.addMenu("실행(&R)")
+        run_menu = menubar.addMenu("실행(F11)")
 
-        self.run_action = QAction("매크로 실행(&R)", self)
-        self.run_action.setShortcut("F5")
+        # F6 글로벌 핫키 등록
+        self.hotkey_manager.register_hotkey("<f11>", self.run_main_sequence, "매크로 실행")
+        self.hotkey_manager.register_hotkey(
+            "<f12>", self.stop_execution, "매크로 실행 중지"
+        )
+
+        # 글로벌 핫키 리스닝 시작
+        self.hotkey_manager.start_listening()
+
+        self.run_action = QAction("매크로 실행(F11)", self)
         self.run_action.triggered.connect(self.run_main_sequence)
         run_menu.addAction(self.run_action)
 
-        self.stop_action = QAction("실행 중지(&S)", self)
-        self.stop_action.setShortcut("F6")
+        self.stop_action = QAction("실행 중지(F12)", self)
         self.stop_action.setEnabled(False)
         self.stop_action.triggered.connect(self.stop_execution)
         run_menu.addAction(self.stop_action)
+
 
     def create_toolbar(self):
         """툴바 생성"""
@@ -168,18 +151,18 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
 
         # 실행 버튼
-        self.run_btn = QPushButton("실행")
+        self.run_btn = QPushButton("실행(F11)")
         self.run_btn.setObjectName("primary_button")
-        self.run_btn.setToolTip("매크로 실행")
+        self.run_btn.setToolTip("매크로 실행 (F11)")
         self.run_btn.setFixedSize(70, 30)
         self.run_btn.setEnabled(True)  # 항상 활성화
         self.run_btn.clicked.connect(self.run_main_sequence)
         toolbar.addWidget(self.run_btn)
 
         # 중지 버튼
-        self.stop_btn = QPushButton("중지")
+        self.stop_btn = QPushButton("중지(F12)")
         self.stop_btn.setObjectName("danger_button")
-        self.stop_btn.setToolTip("매크로 실행 중지")
+        self.stop_btn.setToolTip("매크로 실행 중지 (F12)")
         self.stop_btn.setFixedSize(70, 30)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_execution)
@@ -584,7 +567,6 @@ class MainWindow(QMainWindow):
             self.is_capturing = False
             self._restore_all_qt_windows()
 
-
     # 액션 메소드들
     def start_capture(self):
         """화면 캡쳐 시작 (바로 오버레이 표시)"""
@@ -701,7 +683,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "capture_overlay") and self.capture_overlay:
                 self.capture_overlay.close()
                 self.capture_overlay = None
-                
+
             self.action_editor.on_mouse_capture_completed(point)
 
             # 모든 윈도우 복원
@@ -815,7 +797,6 @@ class MainWindow(QMainWindow):
 
             self.action_editor.on_capture_completed(template_id, template_name)
             print(f"이미지 템플릿 자동 생성됨: {template_name} ({file_path})")
-
 
         except Exception as e:
             print(f"자동 템플릿 저장 실패: {e}")
@@ -1127,6 +1108,8 @@ class MainWindow(QMainWindow):
             print("매크로 실행을 위해 메인 윈도우 숨김")
             self.hide()
 
+            self.macro_status_overlay = MacroStatusOverlay()
+
             # 화면이 업데이트되기를 잠시 기다림
             QApplication.processEvents()
             QTimer.singleShot(100, lambda: self._start_macro_execution())
@@ -1250,6 +1233,10 @@ class MainWindow(QMainWindow):
         print(f"시퀀스 완료")
         """시퀀스 완료 시 실제 구현 (메인 스레드에서 실행)"""
         try:
+            if self.macro_status_overlay:
+                self.macro_status_overlay.close()
+                self.macro_status_overlay = None
+
             # 매크로 완료 후 창 다시 표시
             if self.isHidden():
                 self.show()
@@ -1272,10 +1259,10 @@ class MainWindow(QMainWindow):
             # UI 리셋
             self.reset_execution_ui()
 
-            # 완료 팝업을 지연해서 표시 (UI 복원 후)
-            QTimer.singleShot(
-                200, lambda: self._show_completion_popup(sequence_name, result)
-            )
+            # # 완료 팝업을 지연해서 표시 (UI 복원 후)
+            # QTimer.singleShot(
+            #     200, lambda: self._show_completion_popup(sequence_name, result)
+            # )
 
         except Exception as e:
             print(f"시퀀스 완료 처리 중 오류: {e}")
@@ -1384,6 +1371,12 @@ class MainWindow(QMainWindow):
         try:
             self.engine.cleanup()
             self.add_log("애플리케이션 종료됨")
+
+            # 글로벌 핫키 리스너 정리
+            if hasattr(self, "hotkey_manager") and self.hotkey_manager:
+                self.hotkey_manager.stop_listening()
+                print("Global hotkey listener stopped on application exit")
+
         except Exception as e:
             print(f"종료 시 오류: {e}")
 

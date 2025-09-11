@@ -182,18 +182,6 @@ class MacroEngine(QObject):
         logger.info(f"이미지 템플릿 추가됨: {name} ({template_id})")
         return template_id
 
-    def execute_sequence(self) -> MacroExecutionResult:
-        """매크로 시퀀스 실행 (동기)"""
-        if self.is_running:
-            logger.warning("다른 매크로가 실행 중입니다")
-            result = MacroExecutionResult()
-            result.error_message = "다른 매크로가 실행 중입니다"
-            return result
-
-        sequence = self.config.macro_sequence
-
-        return self._execute_sequence_sync(sequence)
-
     def execute_sequence_async(self) -> None:
         """매크로 시퀀스 비동기 실행"""
         if self.is_running:

@@ -4,8 +4,9 @@
 
 import cv2
 import numpy as np
-from typing import Tuple, Optional, List, Dict, Any
+from typing import Tuple, Optional, Dict, Any
 from pathlib import Path
+from functools import reduce
 
 
 class MatchResult:
@@ -73,19 +74,45 @@ class ImageMatcher:
         threshold: float = 0.8,
         method: int = cv2.TM_CCORR_NORMED,
     ) -> MatchResult:
+        print("Start match_template")
+
+        def preprocess_color(template: np.ndarray, screenshot: np.ndarray):
+            # 템플릿 채널별 Otsu 적용
+            channels_t = cv2.split(template)
+            channels_s = cv2.split(screenshot)
+
+            th_template_channels = []
+            th_screen_channels = []
+
+            for t_ch, s_ch in zip(channels_t, channels_s):
+                _, th_t = cv2.threshold(
+                    t_ch, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+                )
+                _, th_s = cv2.threshold(s_ch, _, 255, cv2.THRESH_BINARY_INV)
+                th_template_channels.append(th_t)
+                th_screen_channels.append(th_s)
+
+            return (
+                cv2.merge(th_template_channels),
+                cv2.merge(th_screen_channels),
+                reduce(cv2.bitwise_or, th_template_channels),
+            )
+
         """템플릿 매칭 수행"""
         try:
-            # 스크린샷과 템플릿이 컬러인지 확인
-            if len(screenshot.shape) == 2:  # 그레이스케일이면 BGR 변환
-                screenshot = cv2.cvtColor(screenshot, cv2.COLOR_GRAY2BGR)
-            if len(template.shape) == 2:  # 그레이스케일이면 BGR 변환
-                template = cv2.cvtColor(template, cv2.COLOR_GRAY2BGR)
+            # 템플릿/스크린샷을 이진화
+            th_template, th_screen, mask = preprocess_color(template, screenshot)
 
-            cv2.imwrite("screenshot.png", screenshot)
+            # Template Matching
             cv2.imwrite("template.png", template)
+            cv2.imwrite("screenshot.png", screenshot)
+            cv2.imwrite("th_template.png", th_template)
+            cv2.imwrite("th_screen.png", th_screen)
+            cv2.imwrite("mask.png", mask)
+            # cv2.imwrite("mask.png", mask)
 
             # 템플릿 매칭 수행
-            result = cv2.matchTemplate(screenshot, template, method)
+            result = cv2.matchTemplate(screenshot, template, method, mask=mask)
 
             # 최적 매칭 위치 찾기
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
@@ -184,70 +211,6 @@ class ImageMatcher:
         except Exception as e:
             print(f"[Image Matcher] 이미지 검색 중 오류: {template_path}, {e}")
             return MatchResult(found=False)
-
-    def find_all_matches(
-        self,
-        screenshot: np.ndarray,
-        template_path: str,
-        threshold: float = 0.8,
-    ) -> List[MatchResult]:
-        """스크린샷에서 모든 매칭되는 이미지 찾기"""
-        try:
-            template = self.load_template(template_path)
-            if template is None:
-                return []
-
-            # 검색 영역 설정
-            search_area = screenshot
-            offset_x, offset_y = 0, 0
-
-            # 그레이스케일 변환
-            if len(search_area.shape) == 3:
-                search_gray = cv2.cvtColor(search_area, cv2.COLOR_BGR2GRAY)
-            else:
-                search_gray = search_area
-
-            # 템플릿 매칭
-            result = cv2.matchTemplate(search_gray, template, cv2.TM_CCOEFF_NORMED)
-
-            # 임계값 이상의 모든 위치 찾기
-            locations = np.where(result >= threshold)
-
-            matches = []
-            template_h, template_w = template.shape
-
-            for pt in zip(*locations[::-1]):  # x, y 순서로 변환
-                confidence = result[pt[1], pt[0]]
-
-                top_left = (pt[0] + offset_x, pt[1] + offset_y)
-                bottom_right = (top_left[0] + template_w, top_left[1] + template_h)
-                center_position = (
-                    top_left[0] + template_w // 2,
-                    top_left[1] + template_h // 2,
-                )
-
-                matches.append(
-                    MatchResult(
-                        found=True,
-                        confidence=confidence,
-                        center_position=center_position,
-                        top_left=top_left,
-                        bottom_right=bottom_right,
-                        template_size=(template_w, template_h),
-                    )
-                )
-
-            # 신뢰도 순으로 정렬
-            matches.sort(key=lambda x: x.confidence, reverse=True)
-
-            print(
-                f"[Image Matcher] 매칭 결과: {len(matches)}개 찾음 (임계값: {threshold})"
-            )
-            return matches
-
-        except Exception as e:
-            print(f"[Image Matcher] 전체 매칭 검색 중 오류: {template_path}, {e}")
-            return []
 
     def clear_cache(self) -> None:
         """템플릿 캐시 삭제"""
